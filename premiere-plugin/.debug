@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Enables CEP remote debugging for this extension during development.
+  With the extension loaded in Premiere, open http://localhost:8088 in Chrome
+  to inspect the panel (console, network, DOM). Remove for a production build.
+-->
+<ExtensionList>
+  <Extension Id="com.istv.reeltool.panel">
+    <HostList>
+      <Host Name="PPRO" Port="8088" />
+    </HostList>
+  </Extension>
+</ExtensionList>

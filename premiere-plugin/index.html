@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ISTV Reel Tool</title>
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand"><span class="logo"></span>ISTV <span>Reel Tool</span></div>
+        <div class="badges">
+          <span id="hostBadge" class="badge">Premiere</span>
+        </div>
+      </header>
+
+      <!-- Step 1 — Source -->
+      <section class="card">
+        <div class="card-head">
+          <div class="step-no">1</div>
+          <div class="card-title">Source interview <span class="sub">the clip on your active timeline</span></div>
+        </div>
+        <div id="sourceLine" class="muted">Detecting active sequence…</div>
+        <div class="hstack">
+          <button id="detectBtn" class="btn ghost small" title="Re-read the first video clip on your active timeline as the interview to transcribe">↻ Use active sequence's clip</button>
+          <button id="viewTranscriptBtn" class="btn ghost small hidden" title="Read the Rev.ai transcript and every reel's subtitle lines">📄 View transcript &amp; subtitles</button>
+          <button id="smoothBtn" class="btn ghost small" title="Build a lightweight proxy once (~2-3 min) so 4K footage plays back smoothly. Exports still use full 4K quality.">⚡ Smooth playback</button>
+        </div>
+      </section>
+
+      <!-- Step 2 — Generate -->
+      <section class="card">
+        <div class="card-head">
+          <div class="step-no">2</div>
+          <div class="card-title">Generate reels <span class="sub">transcribe, then pick the best moments</span></div>
+        </div>
+        <label class="field">
+          <span>Speaker name</span>
+          <input id="speaker" type="text" placeholder="e.g. Caylene Salii" title="Corrects the spelling of the speaker's name in the captions" />
+        </label>
+        <div class="row">
+          <label class="field">
+            <span>How many reels</span>
+            <input id="numReels" type="number" min="1" max="20" value="10" title="How many reels to generate from the interview" />
+          </label>
+        </div>
+        <button id="generateBtn" class="btn primary block" disabled title="Extract audio → transcribe with Rev.ai → pick reels with Claude">✨ Generate reels</button>
+        <label class="check" title="Ignore the saved transcript and transcribe this clip again with Rev.ai">
+          <input id="forceTranscribe" type="checkbox" />
+          <span>Re-transcribe (ignore saved transcript)</span>
+        </label>
+        <div class="hint">The transcript is saved per file — re-running the same clip skips Rev.ai automatically.</div>
+      </section>
+
+      <!-- Pipeline progress -->
+      <section id="pipeline" class="card hidden">
+        <div class="card-head"><div class="card-title">Working…</div></div>
+        <ul id="steps" class="steps"></ul>
+        <div id="pipeMsg" class="hint"></div>
+      </section>
+
+      <!-- Step 3 — Build (captions included) -->
+      <section id="reelsCard" class="card hidden">
+        <div class="card-head row-between">
+          <div class="hstack">
+            <div class="step-no">3</div>
+            <div class="card-title">Reels <span class="sub">(<span id="reelCount">0</span>)</span></div>
+          </div>
+          <span class="hstack">
+            <button id="srtAllBtn" class="btn ghost small" title="Save .srt caption files for every reel (backup / manual re-drag)">📝 Save all SRTs</button>
+            <button id="buildAllBtn" class="btn primary small" title="Create a 9:16 sequence for every reel with captions already placed on it">🎬 Build reels</button>
+          </span>
+        </div>
+        <div class="legend" title="What each reel's status dot means">
+          <span><i class="k" style="background:var(--muted)"></i>not built</span>
+          <span><i class="k" style="background:var(--ok)"></i>done</span>
+          <span><i class="k" style="background:var(--warn)"></i>check it</span>
+          <span><i class="k" style="background:var(--err)"></i>failed</span>
+        </div>
+        <div class="tip">
+          <span class="ico">✅</span>
+          <div><b>Build reels</b> creates each 9:16 sequence with captions already placed on it — editable graphics if a caption template is installed, otherwise an imported .srt (drag it onto the reel once — Premiere has no scripted way to auto-attach a caption file to a specific sequence). <b>Save all SRTs</b> also writes plain .srt files to disk as a backup/manual option.</div>
+        </div>
+        <div id="reels" class="reels"></div>
+      </section>
+
+      <div id="toast" class="toast hidden"></div>
+
+      <!-- Transcript & subtitles viewer -->
+      <div id="transcriptModal" class="modal hidden">
+        <div class="modal-box">
+          <div class="modal-head">
+            <span class="modal-title">Transcript &amp; subtitles</span>
+            <span class="hstack">
+              <button id="saveTxtBtn" class="btn small ghost" title="Save the transcript + subtitles as a .txt next to your video">💾 Save .txt</button>
+              <button id="closeTranscriptBtn" class="btn small" title="Close">✕ Close</button>
+            </span>
+          </div>
+          <div id="transcriptBody" class="modal-body"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CEP bridge, then the controller (which require()s the Node modules). -->
+    <script src="js/lib/CSInterface.js"></script>
+    <script src="js/main.js"></script>
+  </body>
+</html>

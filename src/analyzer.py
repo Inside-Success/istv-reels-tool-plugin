@@ -92,6 +92,7 @@ VALID_CONTENT_TYPES = frozenset({
     "educational insight",
     "highly shareable moment",
     "strong hook",
+    "brand story",
 })
 
 ISTV_ACCOUNTS = """
@@ -123,16 +124,25 @@ You SELECT WHOLE SEGMENTS BY ID, in playback order. You never invent timestamps 
 # Who these reels are for
 ISTV is an interview-documentary company. This subject is a PAYING CLIENT — a founder, entrepreneur, lawyer, doctor, woman entrepreneur, veteran-turned-CEO, or similar professional — and THEY will post these reels to THEIR OWN social accounts. The reels are this person's personal brand, not generic clips. Two consequences:
 - Every reel must be something the subject would be PROUD to attach their name to and share: it should make them look credible, human, and worth following.
-- Across the set, a viewer should come away understanding both WHO this person is (their story, values) AND WHAT they do (their company, work, or field). Aim for at least a few reels that touch on their business or work — drawn only from what they actually said, never invented.
+- Across the set, a viewer should come away understanding both WHO this person is (their story, values) AND WHAT they do (their company, work, or field). A dedicated block of 3-5 BRAND STORY reels (see the BRAND STORY REELS section below) carries the "what they do / why the brand matters" load — drawn only from what they actually said, never invented.
 
 # THE #1 RULE — cover the WHOLE documentary
 Do NOT take the best 2-3 minute segment and split it into 10 clips. Analyze the ENTIRE documentary and build {{NUM_REELS}} reels from DIFFERENT parts of it across the full runtime. Never rely on a single section or on where the energy spikes.
 
 # What to find (the {{NUM_REELS}} reels must span a MIX of these, not all one type)
-emotional moment · turning point · powerful statement · inspirational moment · educational insight · highly shareable moment · strong hook.
-Tag each reel with its primary "content_type" from that list.
+emotional moment · turning point · powerful statement · inspirational moment · educational insight · highly shareable moment · strong hook · brand story.
+Tag each reel with its primary "content_type" from that list. Use "brand story" ONLY for the mandatory brand reels defined below; the remaining reels should span the other seven types.
 
 {{STORY_MODE_BLOCK}}
+
+# BRAND STORY REELS — MANDATORY: 3-5 of the {{NUM_REELS}} reels (if the set is smaller than 6, make about half of them brand reels)
+Beyond the personal-story reels, DESIGNATE 3-5 reels whose job is to build the CLIENT'S BRAND / COMPANY — not just the person. These are the reels that make a viewer think "I need to look this brand up." Build every brand reel to ALL of the following:
+- TEACHES THE BRAND: after watching, a cold viewer genuinely understands what the company/brand does, who it serves, and what makes it different — so they come away more KNOWLEDGEABLE about the brand, not merely entertained. Use only what the subject actually said; never invent a product, feature, client, or number.
+- DRIVES SEARCH: create enough curiosity + credibility that the viewer wants to go search the brand/company by name. NAME the brand or company explicitly (exactly as the subject says it) so there is something concrete to search for. If the subject never names it, don't fabricate one — pick a different qualifying moment instead.
+- BUILDS CREDIBILITY: lead with PROOF — a real result, a named milestone, hard-won expertise, a specific insight, a client outcome — so the brand reads as legitimate and trustworthy. NO hype, NO sales pitch, NO "DM me / link in bio / change your life" energy. Credibility comes from substance the subject actually earned, not from selling.
+- COMPLETE ARC WITH A REAL ENDING: a brand reel MUST feel finished the moment it ends — it lands on a deliberate closing line (a clear takeaway, mission statement, or fully resolved thought about the brand) that earns a beat of silence after it. It must NEVER stop mid-thought, trail off, or sound like the speaker was about to keep going. That decisive ending is what makes the reel feel intentional and reinforces the brand's credibility. If the closing thought finishes one sentence later, INCLUDE that sentence even if the reel runs slightly long.
+- Tag each of these reels with "content_type": "brand story".
+The REMAINING reels stay personal-story / emotional / educational / turning-point moments spanning the other content types. All {{NUM_REELS}} reels together must still cover DIFFERENT parts of the documentary — brand reels must not repeat each other or overlap the personal reels.
 
 # THE CLIENT-POST TEST (apply to every reel before you keep it)
 Before finalizing any reel, ask: "Would this client want to post this on their own page?" Keep it only if it makes them look credible, inspiring, or genuinely human. DROP any reel that makes them look incompetent, bitter, arrogant, negative about a named person, or off-message.
@@ -159,7 +169,7 @@ Vulnerability is NOT disqualifying — a struggle, a low point, a moment they al
 - hashtags: 5-9, platform-agnostic, mix of broad and niche.
 - spoken_hook: the first sentence the viewer hears.
 - text_hook: a 1-3s on-screen overlay that creates a curiosity gap; true to the clip.
-- content_type: one of the 7 types above.
+- content_type: one of the 8 types above ("brand story" ONLY for the mandatory brand reels; the rest use the other seven).
 - series_part: integer for series reels, else null.
 - why_it_works: one line.
 

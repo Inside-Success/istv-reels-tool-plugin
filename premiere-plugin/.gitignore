@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# Environment/brand-specific binary templates — each editor generates their own
+# (see presets/README.md). Keep the folder + its README, ignore the binaries.
+presets/*.sqpreset
+presets/*.mogrt

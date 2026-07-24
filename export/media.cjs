@@ -52,13 +52,21 @@ function run(cmd, args, options = {}) {
   });
 }
 
+function parseRatio(value, fallback) {
+  const parts = String(value || "").split("/");
+  const n = Number(parts[0]);
+  const d = parts.length > 1 ? Number(parts[1]) : 1;
+  if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0 || n <= 0) return fallback;
+  return n / d;
+}
+
 async function probeVideo(filePath) {
   const { stdout } = await run("ffprobe", [
     "-v",
     "error",
     "-show_streams",
     "-show_entries",
-    "stream=codec_type,width,height,duration,r_frame_rate",
+    "stream=codec_type,width,height,duration,r_frame_rate,avg_frame_rate",
     "-of",
     "json",
     filePath,
@@ -69,13 +77,25 @@ async function probeVideo(filePath) {
   if (!vstream) {
     return { width: 0, height: 0, duration: 0, fps: 0, hasVideo: false };
   }
-  const fpsParts = String(vstream.r_frame_rate || "30/1").split("/");
-  const fps = Number(fpsParts[0]) / (Number(fpsParts[1]) || 1);
+  // r_frame_rate is the container's DECLARED (nominal) rate; avg_frame_rate is the
+  // ACTUAL average (frame_count/duration). They diverge on variable-frame-rate
+  // source (common with screen recordings / phone / OBS captures) — the Premiere
+  // plugin and desktop app's UI-facing probes already key off avg_frame_rate, so
+  // this path must resolve fps the same way or the sequence/UI-reported rate and
+  // the rate this FFmpeg engine actually renders at silently disagree, which is a
+  // real source of "choppy after subtitles" (subtitles is the last filter in the
+  // chain, so any upstream timing irregularity only becomes visible there).
+  const rFps = parseRatio(vstream.r_frame_rate, 30);
+  const avgFps = parseRatio(vstream.avg_frame_rate, rFps);
+  const fps = avgFps || rFps || 30;
   return {
     width: Number(vstream.width) || 0,
     height: Number(vstream.height) || 0,
     duration: Number(vstream.duration) || 0,
-    fps: fps || 30,
+    fps,
+    rFps,
+    avgFps,
+    isVfr: Math.abs(rFps - avgFps) > 0.05,
     hasVideo: true,
   };
 }
@@ -524,9 +544,11 @@ function buildExportEncodeArgs({
   if (cfg.tune) {
     videoArgs.push("-tune", cfg.tune);
   }
-  if (fps && fps !== "source") {
-    videoArgs.push("-r", String(targetFps));
-  }
+  // Always pin an explicit output frame rate, even when fps==="source". Without
+  // this, concatenating segments seeked out of a variable-frame-rate source left
+  // the output's frame timing implicit/derived from the filter graph instead of
+  // constant — which reads as stutter once subtitles (the last filter) exposes it.
+  videoArgs.push("-r", String(targetFps));
   // Lossless mode: PCM is uncompressed, so this removes the one remaining lossy
   // step (AAC quantization). -ar/-ac still normalize to 48kHz stereo so the
   // concat/amix filter graph stays consistent across segments and music tracks;
@@ -660,7 +682,7 @@ async function exportReel(sourcePath, outputPath, payload) {
       noScale: isOriginalRes,
     });
     const assEscaped = assPath.replace(/\\/g, "/").replace(/:/g, "\\:");
-    const { videoArgs, audioArgs } = buildExportEncodeArgs({
+    const { videoArgs, audioArgs, targetFps } = buildExportEncodeArgs({
       quality,
       bitrate,
       fps,
@@ -689,7 +711,12 @@ async function exportReel(sourcePath, outputPath, payload) {
       }
       const duration = Math.max(0.08, end - start);
       args.push("-ss", start.toFixed(3), "-t", duration.toFixed(3), "-i", segSourcePath);
-      filterParts.push(`[${i}:v]setpts=PTS-STARTPTS[v${i}]`);
+      // Normalize each segment to constant-frame-rate BEFORE concat. -ss/-t alone
+      // only trims timestamps; a variable-frame-rate source segment can still hand
+      // concat irregular per-frame timing, which the concat filter (timestamp-based)
+      // will happily pass through as judder — especially visible once subtitles are
+      // burned in on top (the last, always-rendered-per-frame filter in the chain).
+      filterParts.push(`[${i}:v]setpts=PTS-STARTPTS,fps=${targetFps}[v${i}]`);
       filterParts.push(`[${i}:a]asetpts=PTS-STARTPTS[a${i}]`);
     });
 

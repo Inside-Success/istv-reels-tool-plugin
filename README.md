@@ -9,6 +9,7 @@ Turn a long-form documentary into short-form 9:16 karaoke reels. This repo has
 | **CLI tool** | Drop a video in `input/`, run one command, get reels in `generated_data/`. | repo root (`generate_reels.py`) |
 | **Backend** | FastAPI service: Rev.ai transcription + Claude reel selection. Holds the API keys. | [`backend/`](backend/) |
 | **Desktop editor** | Cross-platform Electron app (Premiere-style) to edit + export reels. Only compressed audio leaves the machine. | [`desktop/`](desktop/) |
+| **Premiere plugin** | CEP extension: same AI brain, but builds editable 9:16 karaoke reel **sequences inside Premiere** (Premiere renders, not FFmpeg). | [`premiere-plugin/`](premiere-plugin/) |
 
 ## First-time setup (all components)
 
@@ -35,6 +36,17 @@ npm start        # opens the editor window
 ```
 The app talks to the backend at `http://127.0.0.1:8722` (override with `ISTV_BACKEND_URL`).
 See [`desktop/README.md`](desktop/README.md) and [`backend/README.md`](backend/README.md) for details.
+
+### Run the Premiere Pro plugin
+```bash
+cd premiere-plugin
+npm install      # bundled FFmpeg for audio extraction
+```
+Then enable unsigned CEP extensions, drop the folder into Premiere's CEP
+extensions directory, start the backend, and open **Window ▸ Extensions ▸ ISTV
+Reel Tool** in Premiere. It builds editable 9:16 reel sequences directly in your
+project instead of rendering MP4s. Full steps in
+[`premiere-plugin/README.md`](premiere-plugin/README.md).
 
 ---
 

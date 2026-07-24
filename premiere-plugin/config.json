@@ -1,0 +1,4 @@
+{
+  "backendUrl": "http://127.0.0.1:8722",
+  "canvas": { "width": 1080, "height": 1920 }
+}

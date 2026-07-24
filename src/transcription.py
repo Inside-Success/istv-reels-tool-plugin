@@ -1,7 +1,42 @@
+import socket
 import time
 from rev_ai import apiclient
 
 from src.cutter import normalize_word_timings
+
+
+def _is_transient(exc: Exception) -> bool:
+    """True for momentary DNS/connection/timeout blips worth retrying (a long
+    transcription polls Rev.ai for minutes; one network hiccup shouldn't kill it)."""
+    if isinstance(exc, (socket.gaierror, socket.timeout, ConnectionError, TimeoutError)):
+        return True
+    name = type(exc).__name__.lower()
+    if "connection" in name or "timeout" in name:
+        return True
+    msg = str(exc).lower()
+    keys = (
+        "getaddrinfo", "name resolution", "nameresolution", "temporarily unavailable",
+        "max retries", "connectionpool", "connection reset", "connection aborted",
+        "broken pipe", "eof occurred", "failed to resolve", "[errno 11001]",
+    )
+    return any(k in msg for k in keys)
+
+
+def _net_retry(fn, *args, retries: int = 6, base_delay: int = 3, progress_cb=None, what: str = "request"):
+    """Call fn(*args), retrying transient network errors with backoff. Non-network
+    errors (and the final failed attempt) are re-raised unchanged."""
+    last = None
+    for attempt in range(retries):
+        try:
+            return fn(*args)
+        except Exception as exc:  # noqa: BLE001 — we re-raise unless clearly transient
+            if not _is_transient(exc) or attempt == retries - 1:
+                raise
+            last = exc
+            delay = min(base_delay * (attempt + 1), 20)
+            _log(progress_cb, f"Network hiccup on {what} ({type(exc).__name__}); retrying in {delay}s… [{attempt + 1}/{retries}]")
+            time.sleep(delay)
+    raise last  # unreachable, but keeps type-checkers happy
 
 
 def transcribe_audio(
@@ -24,13 +59,17 @@ def transcribe_audio(
     client = apiclient.RevAiAPIClient(api_key)
 
     _log(progress_cb, "Uploading audio to Rev.ai (verbatim word-level)...")
-    job = client.submit_job_local_file(
-        filename=audio_path,
-        language="en",
-        skip_diarization=False,
-        skip_punctuation=False,
-        remove_disfluencies=remove_disfluencies,
-        metadata="ISTV Reel Editor",
+    job = _net_retry(
+        lambda: client.submit_job_local_file(
+            filename=audio_path,
+            language="en",
+            skip_diarization=False,
+            skip_punctuation=False,
+            remove_disfluencies=remove_disfluencies,
+            metadata="ISTV Reel Editor",
+        ),
+        progress_cb=progress_cb,
+        what="audio upload",
     )
     job_id = job.id
     if on_submitted:
@@ -51,7 +90,7 @@ def poll_transcription_job(job_id: str, api_key: str, progress_cb=None) -> dict:
     elapsed = 0
     wait = 10  # start at 10 s, grow to 30 s
     while True:
-        details = client.get_job_details(job_id)
+        details = _net_retry(client.get_job_details, job_id, progress_cb=progress_cb, what="job status")
         status = str(details.status).lower()
 
         if "transcribed" in status:
@@ -69,7 +108,7 @@ def poll_transcription_job(job_id: str, api_key: str, progress_cb=None) -> dict:
             raise RuntimeError("Transcription timed out after 30 minutes.")
 
     _log(progress_cb, "Transcription complete — fetching word-level data...")
-    raw = client.get_transcript_json(job_id)
+    raw = _net_retry(client.get_transcript_json, job_id, progress_cb=progress_cb, what="transcript fetch")
     return _parse(raw)
 
 
