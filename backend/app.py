@@ -13,15 +13,17 @@ editor's machine.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
+import secrets
 import sys
 import tempfile
 import threading
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 # Reuse the existing pipeline package from the repo root.
@@ -40,11 +42,36 @@ from generate_reels import DEFAULT_PROFILE, apply_profile, detect_name_aliases  
 
 app = FastAPI(title="ISTV Reel Editor Backend", version="0.1.0")
 
-# The desktop app runs on the same machine in dev; allow any origin for the
-# local file:// renderer. Tighten to the deployed origin in production.
+# ── Auth ─────────────────────────────────────────────────────────────────────
+# /transcribe and /select spend real money (Rev.ai minutes, Claude Opus tokens at
+# max_tokens=12000). Unauthenticated, anyone who learns the URL can drain the
+# budget, so a shared bearer token gates them. /health stays open for smoke tests
+# and platform health checks — it reveals only whether keys are configured.
+#
+# Set ISTV_API_TOKEN to enable. If it is unset the service runs open and says so
+# loudly at startup: that is the right default for `uvicorn` on localhost, and the
+# warning is what stops it reaching production by accident.
+API_TOKEN = (os.getenv("ISTV_API_TOKEN") or "").strip()
+
+
+def require_token(authorization: str | None = Header(default=None)) -> None:
+    """Bearer-token check for the endpoints that cost money."""
+    if not API_TOKEN:
+        return  # open mode — see the startup warning in _startup()
+    expected = f"Bearer {API_TOKEN}"
+    # Constant-time compare: a plain == leaks token length and prefix through
+    # timing, and this is the only thing standing in front of the API budget.
+    if not authorization or not secrets.compare_digest(authorization.strip(), expected):
+        raise HTTPException(status_code=401, detail="Missing or invalid bearer token")
+
+
+# CORS. Both real clients (the Premiere panel and the desktop app) call this from
+# Node, not a browser, so this is vestigial for them — but a wildcard on a
+# money-spending service is still wrong. Driven by env, defaulting to closed.
+_origins = [o.strip() for o in (os.getenv("ISTV_CORS_ORIGINS") or "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -227,7 +254,7 @@ def health() -> dict:
     }
 
 
-@app.post("/transcribe")
+@app.post("/transcribe", dependencies=[Depends(require_token)])
 async def transcribe(request: Request) -> dict:
     """Accept a compressed audio file (raw octet-stream) and start a Rev.ai job.
 
@@ -261,7 +288,7 @@ async def transcribe(request: Request) -> dict:
     return {"job_id": job_id, "bytes": len(body)}
 
 
-@app.post("/select")
+@app.post("/select", dependencies=[Depends(require_token)])
 async def select(request: Request) -> dict:
     """Receive a word-level transcript + params, return Claude reel cut instructions.
 
@@ -305,7 +332,7 @@ async def select(request: Request) -> dict:
     return {"job_id": job_id}
 
 
-@app.get("/jobs/{job_id}")
+@app.get("/jobs/{job_id}", dependencies=[Depends(require_token)])
 def job_status(job_id: str) -> dict:
     with _LOCK:
         job = _JOBS.get(job_id)
@@ -373,4 +400,22 @@ def _bootstrap_jobs() -> None:
                 ).start()
 
 
-_bootstrap_jobs()
+@app.on_event("startup")
+def _startup() -> None:
+    """Resume in-flight jobs, and refuse to be quietly insecure.
+
+    Job resumption used to run at MODULE IMPORT. Two uvicorn workers import the
+    module twice, so each independently reloaded every persisted in-flight job and
+    spawned its own resume thread — for a `select` job that means a second real
+    Claude Opus call per worker per restart. In a startup handler it runs once per
+    process, which still means one replica only: see the deployment notes in
+    backend/README.md. Fixing the import-time double-execution is what makes a
+    second worker merely wrong rather than actively expensive.
+    """
+    if not API_TOKEN:
+        logging.getLogger("uvicorn.error").warning(
+            "ISTV_API_TOKEN is not set - /transcribe, /select and /jobs are "
+            "UNAUTHENTICATED. Anyone who can reach this URL can spend your Rev.ai and "
+            "Anthropic budget. Fine for localhost; set ISTV_API_TOKEN before exposing it."
+        )
+    _bootstrap_jobs()

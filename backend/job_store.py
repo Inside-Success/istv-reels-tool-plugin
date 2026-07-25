@@ -16,12 +16,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import threading
 import time
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent / "jobs.db"
+# Where the durable job state lives. The default sits next to this file, which is
+# fine locally but is INSIDE THE IMAGE LAYER in a container — every restart would
+# lose all in-flight jobs. Set ISTV_JOBS_DB to a path on a mounted volume when
+# deploying (see backend/Dockerfile and backend/README.md).
+DB_PATH = Path(os.getenv("ISTV_JOBS_DB") or (Path(__file__).resolve().parent / "jobs.db"))
 
 _log = logging.getLogger(__name__)
 _lock = threading.Lock()

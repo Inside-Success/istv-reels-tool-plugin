@@ -1,0 +1,35 @@
+# Keep the build context small and secrets out of it. Without this, `docker build`
+# ships premiere-plugin/vendor (~420 MB of FFmpeg binaries) and any local .env to
+# the daemon even though the Dockerfile never COPYs them.
+
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+.gitattributes
+
+# The plugin is a client, never part of the server image.
+premiere-plugin/
+desktop/
+export/
+
+# Local data and outputs.
+generated_data/
+input/
+backend/jobs.db
+docs/
+
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+
+# Media never belongs in a build context.
+*.mp4
+*.mov
+*.mkv
+*.mp3
+*.zip
+*.docx

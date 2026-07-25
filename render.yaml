@@ -1,0 +1,65 @@
+# Render blueprint for the ISTV Reels backend.
+#
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repo. Render reads this
+# file, then prompts for the two values marked `sync: false`. Those keys are set by
+# you, in the dashboard — they are never committed and never leave your browser.
+#
+# After the first deploy, read the generated ISTV_API_TOKEN from
+#   Dashboard -> istv-reels-backend -> Environment
+# and pass it to the plugin build:
+#   node tools/build.mjs --backend-url https://<service>.onrender.com --auth-token <token>
+#
+# PLAN CHOICE MATTERS HERE, for two reasons:
+#   • A persistent disk requires a paid instance type. On the free tier there is no
+#     disk, so ISTV_JOBS_DB lives in the ephemeral filesystem and every restart
+#     loses in-flight jobs.
+#   • Free instances spin down when idle. A 20-minute transcription poll would be
+#     killed mid-flight; transcription can recover on next boot via the stored
+#     Rev.ai job id, but a Claude selection would re-run and re-bill.
+# `starter` is the cheapest plan that avoids both.
+
+services:
+  - type: web
+    name: istv-reels-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    # Build context is the repo ROOT: backend/app.py imports src/ and
+    # generate_reels.py, so a backend/-only context produces an image that
+    # fails at import.
+    dockerContext: .
+    plan: starter
+    region: oregon
+    branch: main
+    healthCheckPath: /health
+
+    # ONE INSTANCE ONLY. Job state is an in-process dict written through to SQLite,
+    # and startup resumes in-flight jobs — a second instance resumes the same jobs
+    # and re-bills the Claude calls. Scaling out needs Redis first.
+    numInstances: 1
+
+    envVars:
+      # Render generates a strong token and shows it in the dashboard. It is never
+      # in this file and never in git.
+      - key: ISTV_API_TOKEN
+        generateValue: true
+
+      # Prompted for on first deploy. `sync: false` keeps them out of the blueprint.
+      - key: REVAI_API_KEY
+        sync: false
+      - key: CLAUDE_API_KEY
+        sync: false
+
+      # Durable job state on the mounted disk below.
+      - key: ISTV_JOBS_DB
+        value: /data/jobs.db
+
+      # Both real clients call from Node, not a browser, so CORS is vestigial for
+      # them — left empty (closed) rather than a wildcard on a paid service. Add an
+      # origin here only if a browser client is ever added.
+      - key: ISTV_CORS_ORIGINS
+        value: ""
+
+    disk:
+      name: istv-jobs
+      mountPath: /data
+      sizeGB: 1
