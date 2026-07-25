@@ -37,10 +37,52 @@ startup. That is the right default for localhost and the wrong one anywhere else
 | `REVAI_API_KEY` | yes | Rev.ai transcription |
 | `CLAUDE_API_KEY` | yes | Claude cleanup + reel selection |
 | `ISTV_API_TOKEN` | for any non-local deploy | Shared bearer token clients must send |
-| `ISTV_JOBS_DB` | in containers | Path to the SQLite job DB. **Point this at a mounted volume** — the default is inside the image layer, so restarts lose in-flight jobs |
+| `ISTV_DATABASE_URL` | recommended | Postgres connection string for the durable job registry. See **Job storage** below |
+| `ISTV_JOBS_DB` | SQLite path only | Path to the SQLite job DB, used only when no `ISTV_DATABASE_URL` is set. **Needs a mounted volume** — the default is inside the image layer |
+| `ISTV_DB_TABLE` | no | Job table name. Defaults to `istv_reel_jobs` |
 | `ISTV_CORS_ORIGINS` | no | Comma-separated allowed origins. Empty = closed. Both real clients call from Node, not a browser, so this is normally left empty |
 
 Locally, keys are read from the repo-root `.env` (see `.env.example`).
+
+## Job storage
+
+In-flight jobs (a running transcription, a running Claude selection) are held in an
+in-process dict and **written through to a durable store**, so a crash or restart
+reloads them instead of losing an hour of transcription. Two backends, one
+interface:
+
+| | When | Notes |
+|---|---|---|
+| **Postgres** | `ISTV_DATABASE_URL` (or `DATABASE_URL`) is set | What any real deployment should use |
+| **SQLite** | otherwise | Zero setup for local development |
+
+**Use Postgres if you have one.** It is not just a preference on Render:
+
+- A **native** Render service has **no persistent disk at all**, so a SQLite file
+  there sits on ephemeral storage and is wiped on every restart — silently
+  defeating the point of the durable store. Verified: a job written before a
+  restart is recovered from Postgres with its `revai_job_id` intact (so the poller
+  reattaches without re-uploading), and is simply gone from ephemeral SQLite.
+- It removes the need for a paid disk, and therefore for a Docker service.
+
+Point it at an existing shared instance safely: the table is named
+**`istv_reel_jobs`**, not `jobs`, so it will not collide with another
+application's table. Override with `ISTV_DB_TABLE` if needed. Nothing else in the
+database is read or written.
+
+```bash
+ISTV_DATABASE_URL="postgresql://user:pass@host:5432/dbname" \
+  python -m uvicorn backend.app:app --port 8722
+```
+
+`GET /health` reports which store is live (`"job_store": "postgres"`,
+`"durable": true`) so a deploy whose `ISTV_DATABASE_URL` never arrived is visible
+immediately rather than discovered after losing a job. The connection string is
+never echoed — logs and `/health` show a redacted form.
+
+Stale rows are swept hourly during normal operation as well as at startup. That
+matters on a shared database: every row stores its full payload, and for a
+`select` job that includes the entire word-level transcript.
 
 ## Run locally
 
@@ -114,9 +156,6 @@ Known remaining limits, in rough priority order:
   before writing it to a temp file. At the panel's 64 kbps mono encoding a 60-minute
   interview is ~29 MB, a 3-hour multi-cam day ~86 MB. Raise your host's request
   body limit accordingly.
-- **`purge_older_than()` only runs at startup**, so on an always-on instance the
-  job DB grows without bound. Every row stores its full payload, and for `select`
-  jobs that includes the entire transcript.
 - **Scale-to-zero breaks in-flight work.** Jobs run on daemon threads, killed at
   process exit. Transcription recovers on next boot via the stored Rev.ai job id;
   selection re-runs and re-bills.

@@ -251,6 +251,15 @@ def health() -> dict:
         "service": "istv-reel-editor-backend",
         "revai_key": bool((os.getenv("REVAI_API_KEY") or "").strip()),
         "claude_key": bool((os.getenv("CLAUDE_API_KEY") or "").strip()),
+        "auth_required": bool(API_TOKEN),
+        # Which durable store is live. Worth reporting: a deploy that meant to use
+        # Postgres but whose DATABASE_URL never arrived falls back to SQLite, and on
+        # a host with no persistent disk that silently loses every in-flight job on
+        # restart. Better to see "sqlite" here than to find out the hard way.
+        "job_store": job_store.BACKEND,
+        # Never the raw URL — a connection string carries the password. job_store
+        # redacts it, and this is an unauthenticated endpoint.
+        "durable": job_store.BACKEND == "postgres",
     }
 
 

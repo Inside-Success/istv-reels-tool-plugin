@@ -33,6 +33,31 @@ import backend.app as app_module  # noqa: E402
 _failures: list[str] = []
 
 
+def _backdate(js, job_id: str, seconds_ago: int) -> None:
+    """Age a row by rewriting updated_at directly.
+
+    Purge is tested this way rather than with purge_older_than(0) because a
+    zero-age boundary compares a row's write timestamp against "now" and can go
+    either way on sub-millisecond timing — a flaky test that says nothing useful.
+    Production always uses a real age (86400s default), so that is what is tested.
+    """
+    if js.BACKEND == "postgres":
+        import psycopg
+
+        with psycopg.connect(js.DATABASE_URL) as conn:
+            conn.execute(
+                f"UPDATE {js.TABLE} SET updated_at = EXTRACT(EPOCH FROM now()) - %s WHERE job_id = %s",
+                (seconds_ago, job_id),
+            )
+            conn.commit()
+    else:
+        js._store._conn.execute(
+            f"UPDATE {js.TABLE} SET updated_at = strftime('%s','now') - ? WHERE job_id = ?",
+            (seconds_ago, job_id),
+        )
+        js._store._conn.commit()
+
+
 def check(label: str, actual, expected) -> None:
     ok = actual == expected
     print(f"  {'ok  ' if ok else 'FAIL'}  {label:52} {actual!r}" + ("" if ok else f" != {expected!r}"))
@@ -85,6 +110,45 @@ def main() -> int:
     for absent in ("PIL", "numpy"):
         check(f"{absent} not required at import", absent in sys.modules, False)
     check("job DB path is env-overridable", os.environ["ISTV_JOBS_DB"] in str(__import__("backend.job_store", fromlist=["DB_PATH"]).DB_PATH), True)
+
+    print("\njob store: the active backend is reported, not assumed")
+    import backend.job_store as js
+
+    check("backend is sqlite or postgres", js.BACKEND in ("sqlite", "postgres"), True)
+    check("table name is not the generic 'jobs'", js.TABLE != "jobs", True)
+    check("/health reports the store", client.get("/health").json()["job_store"], js.BACKEND)
+    check("/health reports durability", client.get("/health").json()["durable"], js.BACKEND == "postgres")
+    check("/health never contains a password", "@" not in str(client.get("/health").json()), True)
+
+    print(f"\njob store: round-trip against the live backend ({js.BACKEND})")
+    js.save("t-1", "transcribe", {"status": "running", "revai_job_id": "rev-abc"})
+    js.save("t-2", "select", {"status": "running", "transcript": {"words": [{"word": "hi", "time": 0}]}})
+    rows = {jid: (kind, data) for jid, kind, data in js.load_all()}
+    check("both jobs persisted", {"t-1", "t-2"} <= set(rows), True)
+    check("kind survives", rows["t-1"][0], "transcribe")
+    check("nested JSON survives", rows["t-2"][1]["transcript"]["words"][0]["word"], "hi")
+
+    # Re-saving must UPDATE, not insert a duplicate: app.py calls save() on every
+    # status change, so an INSERT-only path would grow a row per poll tick.
+    before = len(js.load_all())
+    js.save("t-1", "transcribe", {"status": "done"})
+    after = js.load_all()
+    check("re-save upserts rather than duplicating", len(after), before)
+    check("re-save updated the payload", dict((j, d) for j, _, d in after)["t-1"]["status"], "done")
+
+    js.delete("t-2")
+    check("delete removes just that job", "t-2" in {j for j, _, _ in js.load_all()}, False)
+
+    # Purge, tested deterministically: backdate the row rather than relying on a
+    # zero-age boundary, which is inherently sub-second-timing dependent.
+    _backdate(js, "t-1", seconds_ago=90_000)
+    js.purge_older_than(86_400)
+    check("purge drops a row older than the max age", "t-1" in {j for j, _, _ in js.load_all()}, False)
+
+    js.save("t-3", "transcribe", {"status": "running"})
+    js.purge_older_than(86_400)
+    check("purge keeps a fresh row", "t-3" in {j for j, _, _ in js.load_all()}, True)
+    js.delete("t-3")
 
     print()
     if _failures:

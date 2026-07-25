@@ -49,7 +49,18 @@ services:
       - key: CLAUDE_API_KEY
         sync: false
 
-      # Durable job state on the mounted disk below.
+      # Durable job state. PREFER POSTGRES: point this at your existing instance
+      # and the disk below becomes unnecessary — which also means this can run as a
+      # native service (no disk available there) without losing in-flight jobs on
+      # restart. Set in the dashboard, never committed.
+      #
+      # The table created is `istv_reel_jobs`, deliberately not `jobs`, so it is
+      # safe to point at a shared database that already has other apps' tables.
+      # Override with ISTV_DB_TABLE if even that collides.
+      - key: ISTV_DATABASE_URL
+        sync: false
+
+      # Only used when ISTV_DATABASE_URL is unset. Requires the disk below.
       - key: ISTV_JOBS_DB
         value: /data/jobs.db
 
