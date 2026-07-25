@@ -1,6 +1,22 @@
+# CLI + desktop pipeline dependencies (generate_reels.py and friends).
+#
+# THIS IS NOT THE BACKEND'S DEPENDENCY FILE. It has no fastapi and no uvicorn, so
+# `pip install -r requirements.txt` followed by `uvicorn ...` fails with exit
+# status 127 (command not found). Deploying the backend uses:
+#
+#     pip install -r backend/requirements.txt
+#
+# See backend/README.md. The container path (backend/Dockerfile, render.yaml)
+# already points at the right file.
+
 python-dotenv>=1.0.0
 rev-ai>=2.21.0
 anthropic>=0.50.0
 python-docx>=1.1.0
-Pillow>=10.0.0
+
+# Only src/camera_sync.py (multi-camera audio alignment), reached from
+# sync_cameras_cli.py and the desktop app. Not on the backend's import path.
 numpy>=1.24.0
+
+# Pillow was listed here but no file in the repo imports PIL. Removed — it was
+# ~7 MB and a compile step in every install and deploy for nothing.
