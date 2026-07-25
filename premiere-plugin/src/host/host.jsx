@@ -2,7 +2,7 @@
  * ISTV Reel Tool — ExtendScript host layer for Premiere Pro.
  *
  * This is the half of the plugin that talks to Premiere's scripting DOM. The
- * HTML panel (js/main.js) does the AI work (audio export → backend transcribe →
+ * HTML panel (src/panel/panel.js) does the AI work (audio export → backend transcribe →
  * Claude reel selection → caption timing) and then hands each reel here to be
  * BUILT INSIDE PREMIERE:
  *
@@ -21,7 +21,7 @@
  */
 
 // NOTE: json2.js (JSON polyfill) and captions.jsx (ISTV_Captions) are loaded
-// explicitly by the panel (js/main.js → loadHost) via $.evalFile with absolute
+// explicitly by the panel (src/panel/panel.js → loadHost) via $.evalFile with absolute
 // paths BEFORE any ISTV function runs. We intentionally do NOT use //@include
 // here because the ExtendScript preprocessor include directive is not reliably
 // honored when CEP loads a ScriptPath, which previously left JSON undefined and

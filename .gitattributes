@@ -1,0 +1,30 @@
+# Line-ending policy.
+#
+# This repo is developed on Windows (core.autocrlf=true) but ships a macOS
+# installer, and a shell script with CRLF endings fails on macOS with
+# "bad interpreter: /bin/bash^M". So the files whose endings actually matter are
+# pinned explicitly rather than left to autocrlf.
+
+* text=auto
+
+# Must be LF or they will not execute on macOS.
+*.command text eol=lf
+*.sh      text eol=lf
+
+# Windows-native scripts: CRLF, which cmd.exe and PowerShell expect.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary — never touch.
+*.mp4    binary
+*.mov    binary
+*.mkv    binary
+*.mp3    binary
+*.zip    binary
+*.docx   binary
+*.png    binary
+*.jpg    binary
+*.exe    binary
+*.sqpreset binary
+*.mogrt    binary

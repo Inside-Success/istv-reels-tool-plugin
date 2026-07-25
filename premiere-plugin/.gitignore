@@ -1,5 +1,13 @@
+# Build-time only — the shipped bundle carries vendor/ffmpeg instead of node_modules.
 node_modules/
+
+# Release bundles.
 dist/
+
+# Vendored FFmpeg/ffprobe binaries: ~145 MB per platform, fetched on demand by
+# `npm run vendor`. Never committed.
+vendor/
+
 # Environment/brand-specific binary templates — each editor generates their own
 # (see presets/README.md). Keep the folder + its README, ignore the binaries.
 presets/*.sqpreset

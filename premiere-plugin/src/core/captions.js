@@ -9,7 +9,7 @@
  * needs to place caption graphics on the freshly built 9:16 reel sequence.
  *
  * The FFmpeg engine used to consume these same blocks to burn karaoke text; here
- * the host (jsx/captions.jsx) consumes them to lay down Premiere graphics / a
+ * the host (src/host/captions.jsx) consumes them to lay down Premiere graphics / a
  * caption track instead. The timing math is identical so the reel reads the same.
  */
 
@@ -51,7 +51,12 @@ function buildPlaybackWords(reel, segments) {
     for (const w of sourceWords) {
       const ws = num(w.time != null ? w.time : w.start);
       const we = num(w.end, ws);
-      if (we < segStart || ws > segEnd) continue;
+      // Require REAL overlap, not just a touching boundary. A word starting exactly
+      // at segEnd (or ending exactly at segStart) shares no time with the span, and
+      // including it produced a 40 ms sliver caption at every cut seam — competing
+      // with the first real word of the next span for the same instant. Words that
+      // genuinely straddle the cut are still kept, clamped to the span below.
+      if (we <= segStart || ws >= segEnd) continue;
       const localStart = offset + Math.max(0, ws - segStart);
       let localEnd = offset + Math.max(0, Math.min(we, segEnd) - segStart);
       if (localEnd <= localStart) localEnd = localStart + MIN_WORD_DISPLAY_SEC;
@@ -141,6 +146,32 @@ function makeCaptionBlocks(words, { chunkSize = DEFAULT_KARAOKE_CHUNK_SIZE } = {
 }
 
 /**
+ * Canonical span list for a reel: positive-length only, sorted by start time.
+ *
+ * THIS MUST BE THE ONLY PLACE THE ORDER IS DECIDED. The host concatenates spans in
+ * this order when it places clips, and captions are timed against the same
+ * concatenation, so if the two disagree every caption on a multi-span reel is
+ * offset by a span length. That is exactly what used to happen: the reel model
+ * sorted the cut sheet while the caption builder consumed it raw, so an AI cut
+ * sheet returned out of order (common — it is a JSON array from an LLM) produced
+ * clips in one order and captions in another.
+ *
+ * Accepts either shape: the reel model's {startSec,endSec} or the raw analysis
+ * cut-sheet rows' {start_time_seconds,end_time_seconds}.
+ */
+function normalizeSegments(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((row) => ({
+      startSec: num(row.startSec != null ? row.startSec : row.start_time_seconds),
+      endSec: num(row.endSec != null ? row.endSec : row.end_time_seconds),
+      role: String(row.role || "BODY").toUpperCase(),
+    }))
+    .filter((s) => s.endSec > s.startSec)
+    .sort((a, b) => a.startSec - b.startSec);
+}
+
+/**
  * Public entry: given a reel with `.segments` (reel-model spans) or a raw
  * analysis reel with `.editor_cut_sheet`, return karaoke caption blocks on the
  * reel timeline. Each block: { start_time_seconds, end_time_seconds, text,
@@ -151,15 +182,9 @@ function buildCaptionsForReel(reel, { chunkSize = DEFAULT_KARAOKE_CHUNK_SIZE } =
   // so we must check length — otherwise we'd skip the editor_cut_sheet and time
   // captions on the raw SOURCE timeline instead of the reel timeline, placing
   // them far outside the reel (blank captions).
-  const segments =
-    Array.isArray(reel.segments) && reel.segments.length
-      ? reel.segments
-      : Array.isArray(reel.editor_cut_sheet)
-      ? reel.editor_cut_sheet.map((r) => ({
-          startSec: num(r.start_time_seconds),
-          endSec: num(r.end_time_seconds),
-        }))
-      : [];
+  const segments = normalizeSegments(
+    Array.isArray(reel.segments) && reel.segments.length ? reel.segments : reel.editor_cut_sheet
+  );
   const words = buildPlaybackWords(reel, segments);
   const blocks = makeCaptionBlocks(words, { chunkSize });
   const reelId = reel.id != null ? reel.id : "reel";
@@ -178,5 +203,6 @@ module.exports = {
   buildCaptionsForReel,
   buildPlaybackWords,
   makeCaptionBlocks,
+  normalizeSegments,
   DEFAULT_KARAOKE_CHUNK_SIZE,
 };

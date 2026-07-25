@@ -1,14 +1,16 @@
 "use strict";
 
 /**
- * Client for the hosted backend (unchanged contract from the desktop app):
- * uploads compressed audio and polls the transcription / selection jobs. Uses
- * Node's built-in http/https — CEP panels have Node.js, so this ports verbatim.
+ * Client for the hosted backend. Uses Node's built-in http/https — CEP panels have
+ * Node.js, so nothing platform-specific happens here.
  *
  *   GET  /health              liveness + which keys are configured
  *   POST /transcribe          raw audio bytes -> { job_id }
  *   POST /select              { transcript, name, num_reels } -> { job_id }
  *   GET  /jobs/{id}           poll -> status + transcript|analysis
+ *
+ * If config.json carries an authToken it is sent as `Authorization: Bearer …` on
+ * every request; a backend that doesn't check it simply ignores the header.
  */
 
 const fs = require("fs");
@@ -16,16 +18,22 @@ const path = require("path");
 const http = require("http");
 const https = require("https");
 const { URL } = require("url");
-const { BACKEND_URL } = require("./config");
+const { BACKEND_URL, AUTH_TOKEN } = require("./config");
 
 function lib(u) {
   return u.protocol === "https:" ? https : http;
 }
 
+function authHeaders(extra) {
+  const headers = Object.assign({}, extra || {});
+  if (AUTH_TOKEN) headers.Authorization = "Bearer " + AUTH_TOKEN;
+  return headers;
+}
+
 function getJSON(urlStr, { timeoutMs = 15000 } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(urlStr);
-    const req = lib(u).request(u, { method: "GET", timeout: timeoutMs }, (res) => {
+    const req = lib(u).request(u, { method: "GET", timeout: timeoutMs, headers: authHeaders() }, (res) => {
       let body = "";
       res.on("data", (d) => (body += d));
       res.on("end", () => {
@@ -63,11 +71,11 @@ function uploadAudio(audioPath, { onProgress } = {}) {
 
     const req = lib(u).request(u, {
       method: "POST",
-      headers: {
+      headers: authHeaders({
         "Content-Type": "application/octet-stream",
         "Content-Length": total,
         "X-Filename": path.basename(audioPath),
-      },
+      }),
     });
 
     req.on("response", (res) => {
@@ -107,7 +115,7 @@ function postJSON(pathName, obj, { timeoutMs = 20000 } = {}) {
       {
         method: "POST",
         timeout: timeoutMs,
-        headers: { "Content-Type": "application/json", "Content-Length": data.length },
+        headers: authHeaders({ "Content-Type": "application/json", "Content-Length": data.length }),
       },
       (res) => {
         let body = "";

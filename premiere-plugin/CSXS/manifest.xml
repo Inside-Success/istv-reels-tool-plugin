@@ -3,7 +3,7 @@
   ISTV Reel Tool — Premiere Pro CEP extension manifest.
 
   CEP (Common Extensibility Platform) panel: an HTML/JS UI (index.html) plus an
-  ExtendScript host layer (jsx/host.jsx) that drives Premiere's scripting DOM.
+  ExtendScript host layer (src/host/host.jsx) that drives Premiere's scripting DOM.
   Node.js is enabled in the panel (see the CEFCommandLine parameters below) so it
   can reuse the repo's proven backend client + bundled FFmpeg for audio export,
   exactly like the old Electron app did — the only difference is that Premiere,
@@ -34,8 +34,8 @@
     <Extension Id="com.istv.reeltool.panel">
       <DispatchInfo>
         <Resources>
-          <MainPath>./index.html</MainPath>
-          <ScriptPath>./jsx/host.jsx</ScriptPath>
+          <MainPath>./src/panel/index.html</MainPath>
+          <ScriptPath>./src/host/host.jsx</ScriptPath>
           <CEFCommandLine>
             <Parameter>--enable-nodejs</Parameter>
             <Parameter>--mixed-context</Parameter>

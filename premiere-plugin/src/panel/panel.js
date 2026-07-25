@@ -3,9 +3,9 @@
 /*
  * ISTV Reel Tool — panel controller.
  *
- * Runs in the CEP panel (Node.js enabled). It orchestrates the AI half of the
- * pipeline exactly like the old Electron app, then hands finished reels to the
- * ExtendScript host (host.jsx) to build inside Premiere:
+ * Runs in the CEP panel (Node.js enabled) and does three things: wire up the DOM,
+ * drive the pipeline, and hand finished reels to the ExtendScript host. All logic
+ * worth testing lives in src/core/* — this file is deliberately the thin layer.
  *
  *   detect source (active sequence clip)
  *     → extract compressed audio (bundled FFmpeg)
@@ -18,166 +18,26 @@
 
 /* global CSInterface, SystemPath */
 
-// ── Node modules (loaded by absolute path from the extension root) ─────────────
 const path = require("path");
+const fs = require("fs");
+const os = require("os");
+
 const cs = new CSInterface();
 const EXT_ROOT = cs.getSystemPath(SystemPath.EXTENSION);
-const backend = require(path.join(EXT_ROOT, "js", "backend.js"));
-const ffmpeg = require(path.join(EXT_ROOT, "js", "ffmpeg.js"));
-const captions = require(path.join(EXT_ROOT, "js", "captions.js"));
-const { DEFAULT_CANVAS } = require(path.join(EXT_ROOT, "js", "config.js"));
 
-// Words per on-screen caption block. Fixed (no more style picker) — captions are
-// now placed directly on the sequence as part of Build, not a separate step.
-const CAPTION_CHUNK_SIZE = 3;
+// CEP does not put the extension on Node's module search path, so core modules are
+// required by absolute path. Works identically on Windows and macOS.
+const core = (name) => require(path.join(EXT_ROOT, "src", "core", name));
+const backend = core("backend.js");
+const ffmpeg = core("ffmpeg.js");
+const presets = core("presets.js");
+const cache = core("cache.js");
+const reelModel = core("reels.js");
+const platformInfo = core("platform.js");
+const { DEFAULT_CANVAS, BACKEND_URL, IS_LOCAL_BACKEND } = core("config.js");
 
-// Presets: prefer a bundled custom template, else auto-detect Premiere's
-// built-in 9:16 sequence preset + caption MOGRT so the plugin works out of the
-// box with zero manual setup.
-const fs = require("fs");
-
-function firstExisting(paths) {
-  for (const p of paths) {
-    try {
-      if (p && fs.existsSync(p)) return p;
-    } catch (e) {
-      /* ignore */
-    }
-  }
-  return "";
-}
-
-/** Installed Premiere Pro program folders (any version), Windows + macOS. */
-function adobeRoots() {
-  const bases =
-    process.platform === "darwin"
-      ? ["/Applications"]
-      : ["C:\\Program Files\\Adobe", "C:\\Program Files (x86)\\Adobe"];
-  const out = [];
-  for (const b of bases) {
-    try {
-      if (!fs.existsSync(b)) continue;
-      for (const d of fs.readdirSync(b)) {
-        if (/Premiere Pro/i.test(d)) {
-          out.push(process.platform === "darwin" ? path.join(b, d, "Contents") : path.join(b, d));
-        }
-      }
-    } catch (e) {
-      /* ignore */
-    }
-  }
-  return out;
-}
-
-/** Find a 9:16 sequence preset: bundled first, else Premiere's built-in Social one. */
-function findVerticalPreset() {
-  const bundled = path.join(EXT_ROOT, "presets", "ISTV_Vertical_1080x1920.sqpreset");
-  if (fs.existsSync(bundled)) return bundled;
-  for (const root of adobeRoots()) {
-    const dir = path.join(root, "Settings", "SequencePresets", "Social");
-    try {
-      if (!fs.existsSync(dir)) continue;
-      const f = fs.readdirSync(dir).find((n) => /9x16/i.test(n) && n.toLowerCase().endsWith(".sqpreset"));
-      if (f) return path.join(dir, f);
-    } catch (e) {
-      /* ignore */
-    }
-  }
-  return "";
-}
-
-/** Find a caption MOGRT: bundled first, else a built-in "…Web Caption" template. */
-function findCaptionMogrt() {
-  const bundled = path.join(EXT_ROOT, "presets", "captions.mogrt");
-  if (fs.existsSync(bundled)) return bundled;
-  for (const root of adobeRoots()) {
-    const dir = path.join(root, "Essential Graphics", "Captions and Subtitles");
-    try {
-      if (!fs.existsSync(dir)) continue;
-      const files = fs.readdirSync(dir).filter((n) => n.toLowerCase().endsWith(".mogrt"));
-      const pick =
-        files.find((n) => /simple web/i.test(n)) ||
-        files.find((n) => /web caption/i.test(n)) ||
-        files.find((n) => /caption/i.test(n)) ||
-        files[0];
-      if (pick) return path.join(dir, pick);
-    } catch (e) {
-      /* ignore */
-    }
-  }
-  return "";
-}
-
-const VERTICAL_PRESET = findVerticalPreset();
-const CAPTION_MOGRT = findCaptionMogrt();
-
-// Cache the last selected reels so reopening the panel can restore them and the
-// editor can re-build in Premiere WITHOUT re-transcribing (saves time + API cost).
-const os = require("os");
-const crypto = require("crypto");
-const CACHE_FILE = path.join(os.tmpdir(), "istv-reel-tool-last.json");
-function saveCache() {
-  try {
-    fs.writeFileSync(CACHE_FILE, JSON.stringify({ source: state.source, reels: state.reels }), "utf8");
-  } catch (e) {
-    /* non-fatal */
-  }
-}
-function loadCache() {
-  try {
-    return JSON.parse(fs.readFileSync(CACHE_FILE, "utf8"));
-  } catch (e) {
-    return null;
-  }
-}
-
-// ── Transcript cache (skip Rev.ai when the same source is re-run) ──────────────
-// The Rev.ai transcript is the slow/paid step. We key a saved copy by a
-// fingerprint of the SOURCE FILE (path + size + mtime), so re-running the exact
-// same clip loads the transcript from disk and jumps straight to reel selection.
-// Change the file (re-edit/re-export) and the fingerprint changes → it re-runs.
-// Persisted under the user's home dir so it survives temp-dir cleanup and reboots.
-const TRANSCRIPT_DIR = path.join(os.homedir(), ".istv-reel-tool", "transcripts");
-const PROXY_DIR = path.join(os.homedir(), ".istv-reel-tool", "proxies");
-function ensureDir(dir) {
-  try {
-    fs.mkdirSync(dir, { recursive: true });
-  } catch (e) {
-    /* non-fatal */
-  }
-}
-function sourceFingerprint(srcPath) {
-  try {
-    const st = fs.statSync(srcPath);
-    return crypto
-      .createHash("sha1")
-      .update(String(srcPath) + "|" + st.size + "|" + Math.round(st.mtimeMs))
-      .digest("hex")
-      .slice(0, 16);
-  } catch (e) {
-    return crypto.createHash("sha1").update(String(srcPath || "unknown")).digest("hex").slice(0, 16);
-  }
-}
-function transcriptCachePath(fp) {
-  return path.join(TRANSCRIPT_DIR, fp + ".json");
-}
-function loadTranscriptCache(fp) {
-  try {
-    const t = JSON.parse(fs.readFileSync(transcriptCachePath(fp), "utf8"));
-    return t && Array.isArray(t.words) && t.words.length ? t : null;
-  } catch (e) {
-    return null;
-  }
-}
-function saveTranscriptCache(fp, transcript) {
-  try {
-    ensureDir(TRANSCRIPT_DIR);
-    fs.writeFileSync(transcriptCachePath(fp), JSON.stringify(transcript), "utf8");
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
+// Which templates we found, and what that means for output quality.
+const TEMPLATES = presets.discover({ extRoot: EXT_ROOT });
 
 // ── panel state ────────────────────────────────────────────────────────────────
 const state = {
@@ -245,7 +105,9 @@ function hostCall(fn, arg) {
  * Resolves "ok" when both JSON and ISTV are defined afterward.
  */
 function loadHost() {
-  const jsxDir = path.join(EXT_ROOT, "jsx").replace(/\\/g, "/");
+  // Forward slashes: ExtendScript's $.evalFile accepts them on both platforms, and
+  // a Windows backslash inside a JS string literal would be read as an escape.
+  const jsxDir = path.join(EXT_ROOT, "src", "host").replace(/\\/g, "/");
   const files = ["json2.js", "captions.jsx", "host.jsx"];
   // Load each file in its own try/catch so a parse/runtime failure names the file.
   const parts = files
@@ -299,13 +161,13 @@ async function init() {
   els.detectBtn.addEventListener("click", detectSource);
   els.generateBtn.addEventListener("click", generate);
   els.buildAllBtn.addEventListener("click", () => buildReels(state.reels));
-  const srtAllBtn = document.getElementById("srtAllBtn");
+  const srtAllBtn = $("srtAllBtn");
   if (srtAllBtn) srtAllBtn.addEventListener("click", () => saveSrts(state.reels));
   if (els.viewTranscriptBtn) els.viewTranscriptBtn.addEventListener("click", openTranscriptModal);
   if (els.smoothBtn) els.smoothBtn.addEventListener("click", makeProxy);
-  const closeT = document.getElementById("closeTranscriptBtn");
+  const closeT = $("closeTranscriptBtn");
   if (closeT) closeT.addEventListener("click", closeTranscriptModal);
-  const saveTxt = document.getElementById("saveTxtBtn");
+  const saveTxt = $("saveTxtBtn");
   if (saveTxt) saveTxt.addEventListener("click", saveTranscriptTxt);
   if (els.transcriptModal) {
     // Click the dark backdrop (outside the box) to dismiss.
@@ -313,6 +175,15 @@ async function init() {
       if (e.target === els.transcriptModal) closeTranscriptModal();
     });
   }
+
+  // Log which FFmpeg we resolved — first thing to check on any "Extract audio"
+  // failure, and the fastest way to spot a bundle built for the wrong platform.
+  const ffDiag = ffmpeg.diagnostics();
+  console.log("[ISTV] platform:", ffDiag.platform);
+  console.log("[ISTV] ffmpeg:", ffDiag.ffmpeg.source, ffDiag.ffmpeg.path);
+  console.log("[ISTV] ffprobe:", ffDiag.ffprobe.source, ffDiag.ffprobe.path);
+  console.log("[ISTV] vertical preset:", TEMPLATES.verticalPreset || "(none)");
+  console.log("[ISTV] caption mogrt:", TEMPLATES.captionMogrt || "(none)");
 
   // Load the ExtendScript host explicitly (see loadHost) before anything calls it.
   const loaded = await loadHost();
@@ -340,21 +211,23 @@ async function init() {
         toast("Backend is up but missing keys (Rev.ai/Claude). Set them server-side.", "warn");
       }
     })
-    .catch(() => toast("Backend not reachable at " + backend.BACKEND_URL + " — start it before generating.", "err"));
+    .catch(() =>
+      toast(
+        "Backend not reachable at " +
+          BACKEND_URL +
+          (IS_LOCAL_BACKEND
+            ? " — this build points at a local backend. Start it, or ask for a build pointing at the hosted one."
+            : " — start it before generating."),
+        "err"
+      )
+    );
 
-  // Confirm the auto-detected templates (helps diagnose framing/caption issues).
-  const presetName = VERTICAL_PRESET ? base(VERTICAL_PRESET) : "none (project default)";
-  const mogrtName = CAPTION_MOGRT ? base(CAPTION_MOGRT) : "none (SRT fallback)";
-  console.log("[ISTV] vertical preset:", VERTICAL_PRESET || "(none)");
-  console.log("[ISTV] caption mogrt:", CAPTION_MOGRT || "(none)");
-  if (!CAPTION_MOGRT) {
-    toast("No caption template installed — Build reels will import an .srt instead (drag it onto the reel once).", "warn");
-  }
+  TEMPLATES.warnings.forEach((w) => toast(w, "warn"));
 
   await detectSource();
 
   // Restore last run's reels so the editor can rebuild without re-transcribing.
-  const cached = loadCache();
+  const cached = cache.loadLastRun();
   if (cached && Array.isArray(cached.reels) && cached.reels.length) {
     // A fresh Premiere session has none of last run's sequences, so clear the
     // built flags — Build will recreate them on demand.
@@ -378,13 +251,13 @@ async function detectSource() {
     const meta = await ffmpeg.probe(res.data.path);
     state.source = { ...res.data, meta };
     els.sourceLine.innerHTML =
-      `<b>${res.data.name}</b> · ${meta.width}×${meta.height} · ${meta.fps}fps · ${fmtDur(meta.durationSec)}` +
-      `<br/><span class="small">${res.data.path}</span>`;
+      `<b>${escapeHtml(res.data.name)}</b> · ${meta.width}×${meta.height} · ${meta.fps}fps · ${reelModel.fmtDur(meta.durationSec)}` +
+      `<br/><span class="small">${escapeHtml(res.data.path)}</span>`;
     els.generateBtn.disabled = false;
     refreshTranscriptAvailability();
   } catch (e) {
     state.source = { ...res.data, meta: { fps: 30, width: 1920, height: 1080, durationSec: 0 } };
-    els.sourceLine.innerHTML = `<b>${res.data.name}</b> <span class="small">(probe failed: ${e.message})</span>`;
+    els.sourceLine.innerHTML = `<b>${escapeHtml(res.data.name)}</b> <span class="small">(probe failed: ${escapeHtml(e.message)})</span>`;
     els.generateBtn.disabled = false;
     refreshTranscriptAvailability();
   }
@@ -398,9 +271,9 @@ function refreshTranscriptAvailability() {
     showTranscriptButton(false);
     return;
   }
-  const fp = sourceFingerprint(state.source.path);
+  const fp = cache.sourceFingerprint(state.source.path);
   state.sourceFingerprint = fp;
-  const cached = loadTranscriptCache(fp);
+  const cached = cache.loadTranscript(fp);
   if (cached) {
     state.transcript = cached;
     showTranscriptButton(true);
@@ -427,10 +300,10 @@ async function generate() {
     stepState("source", "done");
 
     // Fingerprint the source so the transcript can be cached/reused (path+size+mtime).
-    const fp = sourceFingerprint(state.source.path);
+    const fp = cache.sourceFingerprint(state.source.path);
     state.sourceFingerprint = fp;
     const forceRetranscribe = !!(els.forceTranscribe && els.forceTranscribe.checked);
-    const cachedTranscript = forceRetranscribe ? null : loadTranscriptCache(fp);
+    const cachedTranscript = forceRetranscribe ? null : cache.loadTranscript(fp);
 
     let transcript;
     if (cachedTranscript) {
@@ -468,10 +341,12 @@ async function generate() {
       stepState("transcribe", "done");
       try {
         fs.unlinkSync(audio.path);
-      } catch (e) {}
+      } catch (e) {
+        /* temp file; the OS will reap it */
+      }
 
       // Save the transcript so a re-run of this exact file skips Rev.ai next time.
-      if (saveTranscriptCache(fp, transcript)) {
+      if (cache.saveTranscript(fp, transcript)) {
         pipeMsg("Transcript saved — re-runs of this file will skip Rev.ai.");
       }
     }
@@ -491,9 +366,9 @@ async function generate() {
     stepState("select", "done");
 
     state.analysis = analysis;
-    state.reels = normalizeReels(analysis);
+    state.reels = reelModel.normalizeReels(analysis);
     renderReels();
-    saveCache();
+    cache.saveLastRun({ source: state.source, reels: state.reels });
     pipeMsg(`${state.reels.length} reels selected. Review, then build in Premiere.`);
     toast("Reels ready. Click a reel's Build button, or Build all.", "ok");
   } catch (e) {
@@ -504,46 +379,6 @@ async function generate() {
   } finally {
     els.generateBtn.disabled = false;
   }
-}
-
-// ── normalize analysis reels for display + build ────────────────────────────────
-function normalizeReels(analysis) {
-  const reels = Array.isArray(analysis && analysis.reels) ? analysis.reels : [];
-  return reels.map((r, i) => {
-    const sheet = Array.isArray(r.editor_cut_sheet) ? r.editor_cut_sheet : [];
-    let segments = sheet
-      .map((row) => ({
-        startSec: num(row.start_time_seconds),
-        endSec: num(row.end_time_seconds),
-        role: String(row.role || "BODY").toUpperCase(),
-      }))
-      .filter((s) => s.endSec > s.startSec)
-      .sort((a, b) => a.startSec - b.startSec);
-    if (!segments.length) {
-      const a = num(r.start_time_seconds);
-      segments = [{ startSec: a, endSec: num(r.end_time_seconds, a + 30), role: "HOOK" }];
-    }
-    const durationSec = segments.reduce((t, s) => t + (s.endSec - s.startSec), 0);
-
-    const captionBlocks = captions.buildCaptionsForReel(r, { chunkSize: CAPTION_CHUNK_SIZE });
-
-    return {
-      id: num(r.id, i + 1),
-      index: i + 1,
-      rank: num(r.rank, i + 1),
-      title: String(r.title || `Reel ${i + 1}`),
-      caption: String(r.caption || ""),
-      hashtags: Array.isArray(r.hashtags) ? r.hashtags : [],
-      whyItWorks: String(r.why_it_works || r.theme || ""),
-      spokenHook: String(r.spoken_hook || ""),
-      segments,
-      durationSec: Math.round(durationSec * 10) / 10,
-      captionBlocks,
-      _raw: r, // keep the analysis reel so captions can be rebuilt per template
-      sequenceName: "", // set once built in Premiere
-      built: false,
-    };
-  });
 }
 
 function renderReels() {
@@ -580,40 +415,18 @@ async function buildReels(reels) {
   els.buildAllBtn.disabled = true;
   reels.forEach((r) => setReelStatus(r, "Building…", ""));
 
-  const meta = state.source.meta || {};
-  const payload = {
-    sourcePath: state.source.path,
+  const payload = reelModel.buildPayload(reels, {
+    source: state.source,
     canvas: DEFAULT_CANVAS,
-    fps: meta.fps && meta.fps > 0 ? meta.fps : 0, // match the reel sequence to the source fps
-    presetPath: VERTICAL_PRESET,
-    mogrtPath: CAPTION_MOGRT || "",
-    // Captions are placed directly on the sequence as part of the build — no
-    // separate "Apply subtitles" step. Karaoke (MOGRT graphics) when a caption
-    // template is installed; otherwise an imported, editable native .srt.
-    captionMode: CAPTION_MOGRT ? "karaoke" : "native",
-    binName: "ISTV Reels",
-    reels: reels.map((r) => ({
-      id: r.id,
-      index: r.index,
-      title: r.title,
-      segments: r.segments,
-      reframe: { cropX: 0.5, cropY: 0.5, zoom: 1, srcW: meta.width || 1920, srcH: meta.height || 1080 },
-      captionBlocks: r.captionBlocks,
-      metadata: {
-        title: r.title,
-        caption: r.caption,
-        hashtags: r.hashtags,
-        whyItWorks: r.whyItWorks,
-        spokenHook: r.spokenHook,
-      },
-    })),
-  };
+    presetPath: TEMPLATES.verticalPreset,
+    mogrtPath: TEMPLATES.captionMogrt,
+  });
 
   const res = await hostCall("buildReels", payload);
   els.buildAllBtn.disabled = false;
 
   // Write the full build result (incl. per-reel caption diagnostics) to a temp
-  // file for troubleshooting — safe to remove later.
+  // file for troubleshooting.
   try {
     fs.writeFileSync(path.join(os.tmpdir(), "istv-reel-tool-lastbuild.json"), JSON.stringify(res, null, 2), "utf8");
   } catch (e) {
@@ -632,20 +445,19 @@ async function buildReels(reels) {
     if (b.sequenceName) reel.sequenceName = b.sequenceName;
     const status = b.ok ? `✓ Built ${b.sequenceName}` : "Failed: " + (b.error || "unknown");
     setReelStatus(reel, status, b.ok ? "ok" : "err");
-    const card = document.getElementById("reel-" + state.reels.indexOf(reel));
+    const card = $("reel-" + state.reels.indexOf(reel));
     if (card && b.ok) card.classList.add("built");
   });
   const okReels = (res.data.built || []).filter((b) => b && b.ok).length;
   const warns = res.data.warnings || [];
-  const captionNote = CAPTION_MOGRT
+  const captionNote = TEMPLATES.captionMogrt
     ? "Captions are placed on the sequence."
     : "Captions imported as .srt — drag each onto its reel's timeline once.";
   toast(`Built ${okReels} reel sequence(s). ${captionNote}` + (warns[0] ? " " + warns[0] : ""), "ok");
 }
 
 function setReelStatus(reel, text, cls) {
-  const idx = state.reels.indexOf(reel);
-  const card = document.getElementById("reel-" + idx);
+  const card = $("reel-" + state.reels.indexOf(reel));
   if (!card) return;
   const st = card.querySelector(".status");
   st.textContent = text;
@@ -661,9 +473,9 @@ async function makeProxy() {
   els.smoothBtn.disabled = true;
   toast("Preparing smooth-playback proxy…", "");
   try {
-    ensureDir(PROXY_DIR);
-    const fp = sourceFingerprint(state.source.path);
-    const proxyPath = path.join(PROXY_DIR, fp + ".mp4");
+    cache.ensureDir(cache.PROXY_DIR);
+    const fp = cache.sourceFingerprint(state.source.path);
+    const proxyPath = cache.proxyPath(fp);
     if (!fs.existsSync(proxyPath) || fs.statSync(proxyPath).size < 1024) {
       await ffmpeg.renderProxy(state.source.path, proxyPath, {
         onProgress: (p) => toast(`Building smooth-playback proxy… ${Math.round(p * 100)}% (one-time)`, ""),
@@ -687,55 +499,31 @@ async function makeProxy() {
 }
 
 // ── SRT export (reliable manual caption path: drag onto the reel timeline) ──────
-function srtStamp(sec) {
-  sec = Math.max(0, Number(sec) || 0);
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = Math.floor(sec % 60);
-  const ms = Math.round((sec - Math.floor(sec)) * 1000);
-  const p = (n, w) => String(n).padStart(w, "0");
-  return `${p(h, 2)}:${p(m, 2)}:${p(s, 2)},${p(ms, 3)}`;
+
+/** Where per-reel caption files go: next to the source video, else the temp dir. */
+function captionsDir() {
+  const src = state.source && state.source.path;
+  return path.join(src ? path.dirname(src) : os.tmpdir(), "ISTV_Captions");
 }
 
-function reelToSrt(reel) {
-  const blocks = reel.captionBlocks || [];
-  const out = [];
-  blocks.forEach((b, i) => {
-    out.push(String(i + 1));
-    out.push(`${srtStamp(b.start_time_seconds)} --> ${srtStamp(b.end_time_seconds)}`);
-    out.push(String(b.text || ""));
-    out.push("");
-  });
-  return out.join("\n");
-}
-
-/** Write .srt files for the given reels and open the folder so you can drag them in. */
+/** Write .srt files for the given reels and reveal the folder so you can drag them in. */
 function saveSrts(reels) {
   if (!reels || !reels.length) return;
-  const baseDir = path.join(
-    path.dirname((state.source && state.source.path) || os.tmpdir()),
-    "ISTV_Captions"
-  );
+  const baseDir = captionsDir();
   let written = 0;
   try {
     fs.mkdirSync(baseDir, { recursive: true });
     reels.forEach((r) => {
-      const srt = reelToSrt(r);
+      const srt = reelModel.reelToSrt(r);
       if (!srt.trim()) return;
-      const safe = String(r.title || "reel").replace(/[\\/:*?"<>|]/g, "").slice(0, 40).trim() || "reel";
-      const name = `Reel_${String(r.index).padStart(2, "0")}_${safe}.srt`;
-      fs.writeFileSync(path.join(baseDir, name), srt, "utf8");
+      fs.writeFileSync(path.join(baseDir, reelModel.srtFileName(r)), srt, "utf8");
       written++;
     });
   } catch (e) {
     toast("Could not write SRT files: " + e.message, "err");
     return;
   }
-  try {
-    require("child_process").spawn("explorer", [baseDir], { detached: true, windowsHide: true });
-  } catch (e) {
-    /* folder still written; just couldn't auto-open */
-  }
+  platformInfo.openFolder(baseDir);
   toast(
     `Saved ${written} SRT file(s) to ${baseDir}. In Premiere: File ▸ Import the .srt (or drag it), then drop it on the reel's timeline — it becomes an editable caption track.`,
     "ok"
@@ -743,44 +531,6 @@ function saveSrts(reels) {
 }
 
 // ── transcript & subtitles viewer ──────────────────────────────────────────────
-function fmtClock(sec) {
-  sec = Math.max(0, Math.floor(Number(sec) || 0));
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return m + ":" + String(s).padStart(2, "0");
-}
-
-/** Turn the Rev.ai word list into readable text, grouped into speaker turns. */
-function transcriptToText(t) {
-  const words = t && Array.isArray(t.words) ? t.words : [];
-  if (!words.length) return "(no transcript words available)";
-  const lines = [];
-  let curSpk = null;
-  let startSec = 0;
-  let buf = [];
-  const flush = () => {
-    if (!buf.length) return;
-    const who = curSpk != null ? " · Speaker " + curSpk : "";
-    lines.push("[" + fmtClock(startSec) + who + "]  " + buf.join(" "));
-    buf = [];
-  };
-  words.forEach((w) => {
-    const spk = w.speaker != null ? w.speaker : 0;
-    const ws = num(w.start != null ? w.start : w.time);
-    if (curSpk === null) {
-      curSpk = spk;
-      startSec = ws;
-    } else if (spk !== curSpk) {
-      flush();
-      curSpk = spk;
-      startSec = ws;
-    }
-    const word = String(w.word || "").trim();
-    if (word) buf.push(word);
-  });
-  flush();
-  return lines.join("\n\n");
-}
 
 function openTranscriptModal() {
   if (!els.transcriptModal || !els.transcriptBody) return;
@@ -789,7 +539,7 @@ function openTranscriptModal() {
     toast("No transcript yet — click Generate first.", "warn");
     return;
   }
-  const dur = t.duration ? " · " + fmtClock(t.duration) : "";
+  const dur = t.duration ? " · " + reelModel.fmtClock(t.duration) : "";
   const wc = t.word_count || (t.words || []).length;
   const parts = [];
   parts.push(
@@ -798,13 +548,13 @@ function openTranscriptModal() {
       " · " +
       wc +
       ' words</div><div class="tbody">' +
-      escapeHtml(transcriptToText(t)) +
+      escapeHtml(reelModel.transcriptToText(t)) +
       "</div></div>"
   );
   if (state.reels && state.reels.length) {
     const subs = state.reels
       .map((r) => {
-        const srt = (reelToSrt(r) || "").trim();
+        const srt = (reelModel.reelToSrt(r) || "").trim();
         return (
           '<div class="sub-reel"><div class="sub-h">#' +
           r.rank +
@@ -837,13 +587,13 @@ function saveTranscriptTxt() {
     toast("No transcript to save yet.", "warn");
     return;
   }
-  const baseDir = path.join(path.dirname((state.source && state.source.path) || os.tmpdir()), "ISTV_Captions");
-  const stem = state.source ? base(state.source.path).replace(/\.[^.]+$/, "") : "transcript";
-  const out = ["TRANSCRIPTION (Rev.ai)", "", transcriptToText(t)];
+  const baseDir = captionsDir();
+  const stem = state.source ? reelModel.baseName(state.source.path).replace(/\.[^.]+$/, "") : "transcript";
+  const out = ["TRANSCRIPTION (Rev.ai)", "", reelModel.transcriptToText(t)];
   if (state.reels && state.reels.length) {
     out.push("", "========================================", "SUBTITLES PER REEL");
     state.reels.forEach((r) => {
-      out.push("", "#" + r.rank + "  " + String(r.title || "") + " (" + r.durationSec + "s)", (reelToSrt(r) || "").trim());
+      out.push("", "#" + r.rank + "  " + String(r.title || "") + " (" + r.durationSec + "s)", (reelModel.reelToSrt(r) || "").trim());
     });
   }
   let file;
@@ -855,30 +605,11 @@ function saveTranscriptTxt() {
     toast("Could not save transcript: " + e.message, "err");
     return;
   }
-  try {
-    require("child_process").spawn("explorer", [baseDir], { detached: true, windowsHide: true });
-  } catch (e) {
-    /* file still written */
-  }
+  platformInfo.openFolder(baseDir);
   toast("Saved transcript to " + file, "ok");
 }
 
 // ── utils ────────────────────────────────────────────────────────────────────
-function num(v, d = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : d;
-}
-function base(p) {
-  const s = String(p || "");
-  const i = Math.max(s.lastIndexOf("/"), s.lastIndexOf("\\"));
-  return i >= 0 ? s.slice(i + 1) : s;
-}
-function fmtDur(sec) {
-  sec = Math.round(sec || 0);
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return m + ":" + String(s).padStart(2, "0");
-}
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }

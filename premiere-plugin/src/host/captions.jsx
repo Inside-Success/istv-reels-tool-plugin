@@ -1,7 +1,7 @@
 /*
  * ISTV Reel Tool — caption placement inside Premiere.
  *
- * Consumes the caption blocks computed by js/captions.js (the JS port of the
+ * Consumes the caption blocks computed by src/core/captions.js (the JS port of the
  * repo's caption_builder) and lays them onto the reel sequence. Two modes:
  *
  *   "karaoke"  One Motion Graphics (MOGRT) instance per caption block, placed at
