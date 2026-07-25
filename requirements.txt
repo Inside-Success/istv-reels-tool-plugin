@@ -1,14 +1,19 @@
-# CLI + desktop pipeline dependencies (generate_reels.py and friends).
+# Everything, for every component. Install this and anything in the repo runs.
 #
-# THIS IS NOT THE BACKEND'S DEPENDENCY FILE. It has no fastapi and no uvicorn, so
-# `pip install -r requirements.txt` followed by `uvicorn ...` fails with exit
-# status 127 (command not found). Deploying the backend uses:
+# It deliberately pulls in the backend's own file below, so that the DEFAULT build
+# command every PaaS uses — `pip install -r requirements.txt` — produces a working
+# backend. Without that line the deploy installs fine and then dies with
+# "uvicorn: command not found" (exit status 127), because fastapi and uvicorn are
+# declared only in backend/requirements.txt. That failure mode cost two deploys, so
+# it is now impossible to hit.
 #
-#     pip install -r backend/requirements.txt
-#
-# See backend/README.md. The container path (backend/Dockerfile, render.yaml)
-# already points at the right file.
+# The cost is that a CLI-only user also installs fastapi/uvicorn/psycopg (~15 MB
+# they will not use). That is a fair trade for a deploy that cannot be
+# misconfigured. backend/requirements.txt remains the single source of truth for
+# the server's dependencies — it is not duplicated here.
+-r backend/requirements.txt
 
+# ── CLI + desktop pipeline (generate_reels.py and friends) ───────────────────
 python-dotenv>=1.0.0
 rev-ai>=2.21.0
 anthropic>=0.50.0
