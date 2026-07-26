@@ -34,7 +34,7 @@ const presets = core("presets.js");
 const cache = core("cache.js");
 const reelModel = core("reels.js");
 const platformInfo = core("platform.js");
-const { DEFAULT_CANVAS, BACKEND_URL, IS_LOCAL_BACKEND } = core("config.js");
+const config = core("config.js");
 
 // Which templates we found, and what that means for output quality.
 const TEMPLATES = presets.discover({ extRoot: EXT_ROOT });
@@ -70,7 +70,119 @@ const els = {
   reels: $("reels"),
   buildAllBtn: $("buildAllBtn"),
   toast: $("toast"),
+  backendBadge: $("backendBadge"),
+  connCard: $("connCard"),
+  connStatus: $("connStatus"),
+  tokenInput: $("tokenInput"),
+  saveTokenBtn: $("saveTokenBtn"),
+  showTokenBtn: $("showTokenBtn"),
+  closeConnBtn: $("closeConnBtn"),
+  tokenPath: $("tokenPath"),
 };
+
+// ── connection / access token ──────────────────────────────────────────────────
+
+/**
+ * Check the service and the editor's token, and drive the UI from the result.
+ *
+ * Liveness (/health) and authorisation are separate questions, because /health is
+ * intentionally unauthenticated: it answers "is the service up" but succeeds with
+ * any token or none. verifyToken() answers "will my requests be accepted", using a
+ * probe that costs nothing — see backend.verifyToken.
+ *
+ * Returns true when the panel is clear to run the pipeline.
+ */
+async function checkConnection({ quiet = false } = {}) {
+  const settings = config.current();
+  setBadge("checking", "Service…");
+
+  let live;
+  try {
+    live = await backend.health();
+  } catch (e) {
+    setBadge("err", "Service down");
+    showConn(
+      "Can't reach the ISTV service at " +
+        settings.backendUrl +
+        (settings.isLocalBackend
+          ? " — this build points at a local service. Start it, or ask for a build that points at the hosted one."
+          : ". Check your internet connection, or ask your admin whether the service is running."),
+      "err"
+    );
+    return false;
+  }
+
+  if (!live.revai_key || !live.claude_key) {
+    toast("The service is up but is missing its API keys (Rev.ai/Claude). Contact your admin.", "warn");
+  }
+
+  // The service may not require a token at all (a local dev instance).
+  if (live.auth_required === false) {
+    setBadge("ok", "Connected");
+    hideConn();
+    return true;
+  }
+
+  const verdict = await backend.verifyToken().catch((e) => ({ ok: false, reason: e.message }));
+  if (verdict.ok) {
+    setBadge("ok", "Connected");
+    hideConn();
+    if (!quiet) toast("Connected to the ISTV service.", "ok");
+    return true;
+  }
+
+  setBadge("err", settings.hasToken ? "Token rejected" : "Token needed");
+  showConn(verdict.reason || "The service rejected this token.", settings.hasToken ? "err" : "warn");
+  return false;
+}
+
+function setBadge(kind, text) {
+  if (!els.backendBadge) return;
+  els.backendBadge.textContent = text;
+  els.backendBadge.className = "badge" + (kind === "ok" ? " ok" : kind === "err" ? " err" : "");
+}
+
+function showConn(message, kind) {
+  if (!els.connCard) return;
+  els.connCard.classList.remove("hidden");
+  if (els.connStatus) {
+    els.connStatus.textContent = message || "";
+    els.connStatus.className = kind === "err" ? "err" : kind === "warn" ? "warn" : "muted";
+  }
+  // Only offer Close once a working token exists — otherwise the panel is unusable
+  // and dismissing the one thing that fixes it would just be confusing.
+  if (els.closeConnBtn) els.closeConnBtn.classList.toggle("hidden", !config.current().hasToken);
+  if (els.tokenPath) els.tokenPath.textContent = config.USER_CONFIG_PATH;
+}
+
+function hideConn() {
+  if (els.connCard) els.connCard.classList.add("hidden");
+}
+
+/** Save the token the editor typed, then immediately re-verify it. */
+async function saveToken() {
+  const value = (els.tokenInput.value || "").trim();
+  if (!value) {
+    showConn("Paste the token first.", "warn");
+    return;
+  }
+  els.saveTokenBtn.disabled = true;
+  try {
+    const saved = config.saveUserToken(value);
+    if (!saved.ok) {
+      showConn("Could not save the token: " + saved.error, "err");
+      return;
+    }
+    els.tokenInput.value = ""; // don't leave the secret sitting in the DOM
+    const ok = await checkConnection();
+    if (ok) {
+      toast("Token saved. You're connected — this is a one-time setup.", "ok");
+      await detectSource();
+    }
+  } finally {
+    els.saveTokenBtn.disabled = false;
+  }
+}
 
 // ── host bridge ────────────────────────────────────────────────────────────────
 
@@ -176,6 +288,38 @@ async function init() {
     });
   }
 
+  // Access-token controls.
+  if (els.saveTokenBtn) els.saveTokenBtn.addEventListener("click", saveToken);
+  if (els.tokenInput) {
+    els.tokenInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") saveToken();
+    });
+  }
+  if (els.showTokenBtn) {
+    els.showTokenBtn.addEventListener("click", () => {
+      const hidden = els.tokenInput.type === "password";
+      els.tokenInput.type = hidden ? "text" : "password";
+      els.showTokenBtn.textContent = hidden ? "🙈 Hide" : "👁 Show";
+    });
+  }
+  if (els.closeConnBtn) els.closeConnBtn.addEventListener("click", hideConn);
+  // The badge reopens the card so a token can be changed after setup.
+  if (els.backendBadge) {
+    els.backendBadge.style.cursor = "pointer";
+    els.backendBadge.addEventListener("click", () => {
+      if (els.connCard.classList.contains("hidden")) {
+        showConn(
+          config.current().hasToken
+            ? "A token is already saved on this machine. Paste a new one to replace it."
+            : "Paste the token from your admin.",
+          "muted"
+        );
+      } else {
+        hideConn();
+      }
+    });
+  }
+
   // Log which FFmpeg we resolved — first thing to check on any "Extract audio"
   // failure, and the fastest way to spot a bundle built for the wrong platform.
   const ffDiag = ffmpeg.diagnostics();
@@ -204,23 +348,9 @@ async function init() {
     els.hostBadge.textContent = "Host error";
     els.hostBadge.classList.add("err");
   }
-  backend
-    .health()
-    .then((h) => {
-      if (!h.revai_key || !h.claude_key) {
-        toast("Backend is up but missing keys (Rev.ai/Claude). Set them server-side.", "warn");
-      }
-    })
-    .catch(() =>
-      toast(
-        "Backend not reachable at " +
-          BACKEND_URL +
-          (IS_LOCAL_BACKEND
-            ? " — this build points at a local backend. Start it, or ask for a build pointing at the hosted one."
-            : " — start it before generating."),
-        "err"
-      )
-    );
+  // Service reachability + the editor's access token. Runs quiet on startup so a
+  // working setup doesn't nag; surfaces the token card when it isn't working.
+  await checkConnection({ quiet: true });
 
   TEMPLATES.warnings.forEach((w) => toast(w, "warn"));
 
@@ -290,6 +420,15 @@ function showTranscriptButton(show) {
 // ── generate: audio → transcribe → select ──────────────────────────────────────
 async function generate() {
   if (!state.source) return;
+
+  // Check the token BEFORE extracting audio. Without this the editor waits through
+  // a full audio export only to hit a 401 on upload, and the error arrives with no
+  // hint that a token is the problem.
+  if (!(await checkConnection())) {
+    toast("Enter your access token to continue — see the panel above.", "warn");
+    return;
+  }
+
   els.generateBtn.disabled = true;
   els.pipeline.classList.remove("hidden");
   els.reelsCard.classList.add("hidden");
@@ -417,7 +556,7 @@ async function buildReels(reels) {
 
   const payload = reelModel.buildPayload(reels, {
     source: state.source,
-    canvas: DEFAULT_CANVAS,
+    canvas: config.current().canvas,
     presetPath: TEMPLATES.verticalPreset,
     mogrtPath: TEMPLATES.captionMogrt,
   });

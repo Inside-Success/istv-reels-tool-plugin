@@ -1,37 +1,58 @@
 "use strict";
 
 /**
- * Panel configuration. CEP panels run with Node.js enabled, so we read a plain
- * config.json shipped at the extension root. Resolution order per setting
- * (first hit wins):
+ * Panel configuration, resolved from three layers (first hit wins per setting):
  *
- *   1. environment variable            ISTV_BACKEND_URL / ISTV_BACKEND_TOKEN
- *   2. <extension>/config.json         { "backendUrl": "...", "authToken": "..." }
- *   3. built-in default                http://127.0.0.1:8722
+ *   1. environment variables     ISTV_BACKEND_URL / ISTV_BACKEND_TOKEN
+ *   2. user config               ~/.istv-reel-tool/config.json      ← the editor's
+ *   3. bundled config            <extension>/config.json            ← what you ship
+ *   4. built-in default          http://127.0.0.1:8722
  *
- * To point every editor at your hosted backend, pass --backend-url to
- * tools/build.mjs once per release; it rewrites config.json in the staged bundle.
- * The build refuses to ship a loopback URL unless you explicitly allow it, so a
- * release can't accidentally go out pointing at your own laptop.
+ * WHY THE USER LAYER EXISTS. The backend requires a bearer token, and the bundle is
+ * published for public download. Baking the token into the bundle would publish the
+ * token too — anyone could unzip it, read config.json, and spend the Rev.ai and
+ * Anthropic budget. So the shipped bundle carries the backend URL (not secret) and
+ * NO token; each editor enters the token once in the panel and it is saved here,
+ * under their home directory, outside the extension folder so it survives
+ * reinstalls and upgrades.
+ *
+ * Settings are re-read on every access rather than cached at module load, so saving
+ * a token takes effect immediately instead of needing a panel reload.
  */
 
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 
 const DEFAULT_BACKEND_URL = "http://127.0.0.1:8722";
+
+/** Shipped with the extension. Contains the backend URL; never a token. */
 const CONFIG_PATH = path.resolve(__dirname, "..", "..", "config.json");
 
-function readConfigFile(configPath) {
+/** The editor's own settings. Holds the token they entered. */
+const USER_CONFIG_DIR = path.join(os.homedir(), ".istv-reel-tool");
+const USER_CONFIG_PATH = path.join(USER_CONFIG_DIR, "config.json");
+
+function readJson(file) {
   try {
-    return JSON.parse(fs.readFileSync(configPath || CONFIG_PATH, "utf8")) || {};
+    return JSON.parse(fs.readFileSync(file, "utf8")) || {};
   } catch (e) {
     return {};
   }
 }
 
+function readConfigFile(configPath) {
+  return readJson(configPath || CONFIG_PATH);
+}
+
+function readUserConfig() {
+  return readJson(USER_CONFIG_PATH);
+}
+
 /**
  * True for URLs that only resolve on the machine that built the bundle. Used by
- * the packaging guard and by the panel to warn instead of silently failing.
+ * the packaging guard and by the panel to explain a failure instead of just
+ * reporting it.
  */
 function isLoopbackUrl(url) {
   const host = String(url || "")
@@ -55,31 +76,87 @@ function isLoopbackUrl(url) {
 
 /**
  * Resolve the effective settings. Pure with respect to its inputs so the tests can
- * drive every precedence branch: resolve({ env, file }).
+ * drive every precedence branch: resolve({ env, file, userFile }).
  */
-function resolve({ env = process.env, file } = {}) {
-  const cfg = file || readConfigFile();
-  const backendUrl = String(env.ISTV_BACKEND_URL || cfg.backendUrl || DEFAULT_BACKEND_URL).replace(/\/+$/, "");
+function resolve({ env = process.env, file, userFile } = {}) {
+  const bundled = file || readConfigFile();
+  const user = userFile || readUserConfig();
+
+  const backendUrl = String(
+    env.ISTV_BACKEND_URL || user.backendUrl || bundled.backendUrl || DEFAULT_BACKEND_URL
+  ).replace(/\/+$/, "");
+
+  // The user layer is checked BEFORE the bundled one: a published bundle has no
+  // token, and this is where the editor's own token lives.
+  const authToken = String(env.ISTV_BACKEND_TOKEN || user.authToken || bundled.authToken || "").trim();
+
+  const canvas =
+    (user.canvas && user.canvas.width && user.canvas.height && user.canvas) ||
+    (bundled.canvas && bundled.canvas.width && bundled.canvas.height && bundled.canvas) ||
+    { width: 1080, height: 1920 };
+
   return {
     backendUrl,
-    // Optional bearer token. Only sent when set, so it stays compatible with a
-    // backend that doesn't check one yet.
-    authToken: String(env.ISTV_BACKEND_TOKEN || cfg.authToken || ""),
-    canvas: cfg.canvas && cfg.canvas.width && cfg.canvas.height ? cfg.canvas : { width: 1080, height: 1920 },
+    authToken,
+    canvas,
     isLocalBackend: isLoopbackUrl(backendUrl),
+    hasToken: authToken.length > 0,
+    // Where the token came from, so the panel can explain itself.
+    tokenSource: env.ISTV_BACKEND_TOKEN
+      ? "environment"
+      : user.authToken
+      ? "this machine"
+      : bundled.authToken
+      ? "the installed bundle"
+      : "",
   };
 }
 
-const settings = resolve();
+/**
+ * Persist the editor's token to ~/.istv-reel-tool/config.json, preserving anything
+ * else already in there. Returns { ok, error } — the panel surfaces the reason
+ * rather than silently failing to save.
+ */
+function saveUserToken(token) {
+  try {
+    fs.mkdirSync(USER_CONFIG_DIR, { recursive: true });
+    const current = readUserConfig();
+    const next = { ...current, authToken: String(token || "").trim() };
+    if (!next.authToken) delete next.authToken;
+    fs.writeFileSync(USER_CONFIG_PATH, JSON.stringify(next, null, 2) + "\n", "utf8");
+    return { ok: true, path: USER_CONFIG_PATH };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+/** Live settings — a getter, so a freshly saved token is picked up at once. */
+function current() {
+  return resolve();
+}
 
 module.exports = {
   DEFAULT_BACKEND_URL,
   CONFIG_PATH,
+  USER_CONFIG_PATH,
+  USER_CONFIG_DIR,
   isLoopbackUrl,
   resolve,
+  current,
   readConfigFile,
-  BACKEND_URL: settings.backendUrl,
-  AUTH_TOKEN: settings.authToken,
-  DEFAULT_CANVAS: settings.canvas,
-  IS_LOCAL_BACKEND: settings.isLocalBackend,
+  readUserConfig,
+  saveUserToken,
+  // Convenience accessors. These read at call time; do not destructure and cache.
+  get BACKEND_URL() {
+    return resolve().backendUrl;
+  },
+  get AUTH_TOKEN() {
+    return resolve().authToken;
+  },
+  get DEFAULT_CANVAS() {
+    return resolve().canvas;
+  },
+  get IS_LOCAL_BACKEND() {
+    return resolve().isLocalBackend;
+  },
 };

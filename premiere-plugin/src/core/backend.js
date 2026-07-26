@@ -18,15 +18,25 @@ const path = require("path");
 const http = require("http");
 const https = require("https");
 const { URL } = require("url");
-const { BACKEND_URL, AUTH_TOKEN } = require("./config");
+const config = require("./config");
 
 function lib(u) {
   return u.protocol === "https:" ? https : http;
 }
 
+/** Current backend base URL. Read per call — the editor can change it at runtime. */
+function baseUrl() {
+  return config.current().backendUrl;
+}
+
+/**
+ * Auth header for every request. The token is read at call time, not captured at
+ * module load, so a token the editor just saved works without reloading the panel.
+ */
 function authHeaders(extra) {
   const headers = Object.assign({}, extra || {});
-  if (AUTH_TOKEN) headers.Authorization = "Bearer " + AUTH_TOKEN;
+  const token = config.current().authToken;
+  if (token) headers.Authorization = "Bearer " + token;
   return headers;
 }
 
@@ -56,7 +66,52 @@ function getJSON(urlStr, { timeoutMs = 15000 } = {}) {
 
 /** GET /health — fail fast with a clear message if the server is down. */
 async function health() {
-  return getJSON(`${BACKEND_URL}/health`);
+  return getJSON(`${baseUrl()}/health`);
+}
+
+/**
+ * Check whether the configured token is accepted, WITHOUT spending any money.
+ *
+ * The probe is `GET /jobs/<nonexistent-id>`, which is guarded by the same bearer
+ * check as the paid endpoints but does no work:
+ *
+ *   401 → the token is missing or wrong
+ *   404 → authorised; the job genuinely does not exist  ✅
+ *   200 → authorised (astronomically unlikely id collision)
+ *
+ * Deliberately NOT /transcribe or /select: hitting those to test auth submits a
+ * real Rev.ai job or runs two Claude Opus calls. /health can't be used either —
+ * it is intentionally unauthenticated, so it succeeds with any token or none.
+ *
+ * Resolves { ok, status, reason }. Never throws for an auth failure; only a
+ * genuinely unreachable backend rejects.
+ */
+function verifyToken({ timeoutMs = 15000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const probeId = "auth-probe-000000000000000000000000";
+    const u = new URL(`${baseUrl()}/jobs/${probeId}`);
+    const req = lib(u).request(u, { method: "GET", timeout: timeoutMs, headers: authHeaders() }, (res) => {
+      res.resume(); // drain, we only care about the status
+      res.on("end", () => {
+        if (res.statusCode === 401 || res.statusCode === 403) {
+          resolve({
+            ok: false,
+            status: res.statusCode,
+            reason: config.current().hasToken
+              ? "The backend rejected this token. Check it for typos, or ask for a current one."
+              : "This backend requires an access token, and none is set.",
+          });
+        } else if (res.statusCode === 404 || (res.statusCode >= 200 && res.statusCode < 300)) {
+          resolve({ ok: true, status: res.statusCode, reason: "" });
+        } else {
+          resolve({ ok: false, status: res.statusCode, reason: `Backend returned ${res.statusCode}.` });
+        }
+      });
+    });
+    req.on("timeout", () => req.destroy(new Error("Backend request timed out")));
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 /**
@@ -65,7 +120,7 @@ async function health() {
  */
 function uploadAudio(audioPath, { onProgress } = {}) {
   return new Promise((resolve, reject) => {
-    const u = new URL(`${BACKEND_URL}/transcribe`);
+    const u = new URL(`${baseUrl()}/transcribe`);
     const total = fs.statSync(audioPath).size;
     let sent = 0;
 
@@ -108,7 +163,7 @@ function uploadAudio(audioPath, { onProgress } = {}) {
 /** POST JSON to a path, returning the parsed response. */
 function postJSON(pathName, obj, { timeoutMs = 20000 } = {}) {
   return new Promise((resolve, reject) => {
-    const u = new URL(`${BACKEND_URL}${pathName}`);
+    const u = new URL(`${baseUrl()}${pathName}`);
     const data = Buffer.from(JSON.stringify(obj), "utf8");
     const req = lib(u).request(
       u,
@@ -147,7 +202,7 @@ async function pollJob(jobId, { onStatus, intervalMs = 2500, timeoutMs = 30 * 60
   const start = Date.now();
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const s = await getJSON(`${BACKEND_URL}/jobs/${jobId}`);
+    const s = await getJSON(`${baseUrl()}/jobs/${jobId}`);
     if (onStatus) onStatus(s);
     if (s.status === "done") return s;
     if (s.status === "error") throw new Error(s.error || "Job failed");
@@ -170,4 +225,4 @@ async function selectReels(transcript, name, numReels, { onStatus } = {}) {
   return final.analysis;
 }
 
-module.exports = { health, uploadAudio, transcribe, pollJob, selectReels, BACKEND_URL };
+module.exports = { health, verifyToken, uploadAudio, transcribe, pollJob, selectReels, baseUrl };

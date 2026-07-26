@@ -34,6 +34,26 @@ INSTALL - Mac
       "Intel..."              ->  ISTV-Reel-Tool-mac-x64.zip
 
 
+FIRST RUN - ENTER YOUR ACCESS TOKEN (once)
+------------------------------------------
+
+  The first time you open the panel it asks for an access token. Ask
+  whoever runs the ISTV service for it, paste it in, and click
+  "Save & connect".
+
+  You only do this once. It is saved on your own machine, not inside the
+  download - which is why the download can be public while the service
+  stays protected.
+
+  To change it later, click the "Service" badge at the top of the panel.
+
+  The badge tells you where you stand:
+    Connected       ready to use
+    Token needed    paste the token
+    Token rejected  wrong or expired token - ask for a current one
+    Service down    the service is not reachable; contact your admin
+
+
 USING IT
 --------
 
@@ -72,8 +92,12 @@ TROUBLE?
     - Confirm you installed the zip built for your platform - the
       installer prints a warning if it does not match.
 
-  "Backend not reachable":
-    The transcription service is not running. Contact your admin - it
+  "Token needed" or "Token rejected":
+    Click the "Service" badge at the top of the panel and paste the
+    token your admin gave you. If it is rejected, ask for a current one.
+
+  "Service down":
+    The transcription service is not reachable. Contact your admin - it
     must be up before you can generate reels.
 
   "Extract audio" fails:

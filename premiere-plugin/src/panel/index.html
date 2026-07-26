@@ -11,9 +11,36 @@
       <header class="topbar">
         <div class="brand"><span class="logo"></span>ISTV <span>Reel Tool</span></div>
         <div class="badges">
+          <span id="backendBadge" class="badge" title="Connection to the ISTV service. Click to change your access token.">Service</span>
           <span id="hostBadge" class="badge">Premiere</span>
         </div>
       </header>
+
+      <!-- Connection / access token. Shown automatically until the token works,
+           and reopenable any time from the Service badge. The token is NOT shipped
+           in the download: each editor enters it once and it is saved on their own
+           machine, so the public bundle contains no secret. -->
+      <section id="connCard" class="card hidden">
+        <div class="card-head">
+          <div class="step-no">🔑</div>
+          <div class="card-title">Access token <span class="sub">one-time setup</span></div>
+        </div>
+        <div id="connStatus" class="muted">Checking the connection…</div>
+        <label class="field">
+          <span>Token</span>
+          <input id="tokenInput" type="password" autocomplete="off" spellcheck="false"
+                 placeholder="paste the token from your admin" />
+        </label>
+        <div class="hstack">
+          <button id="saveTokenBtn" class="btn primary small" title="Save this token on this machine and re-check the connection">Save &amp; connect</button>
+          <button id="showTokenBtn" class="btn ghost small" title="Show or hide the token text">👁 Show</button>
+          <button id="closeConnBtn" class="btn ghost small hidden" title="Close">✕ Close</button>
+        </div>
+        <div class="hint">
+          Saved on this machine only (<span id="tokenPath" class="small"></span>) — never inside the
+          downloaded plugin. Ask whoever runs the ISTV service for the token.
+        </div>
+      </section>
 
       <!-- Step 1 — Source -->
       <section class="card">
