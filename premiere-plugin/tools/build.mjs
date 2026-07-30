@@ -139,7 +139,7 @@ function dirSize(dir) {
 }
 
 /** Stage one bundle: extension payload + vendored binaries + installers + guide. */
-function stageBundle({ label, targets, backendUrl, currentConfig }) {
+function stageBundle({ label, targets, backendUrl, currentConfig, version }) {
   const stage = join(DIST, `ISTV-Reel-Tool-${label}`);
   const extDir = join(stage, EXT_ID);
   rmSync(stage, { recursive: true, force: true });
@@ -208,6 +208,10 @@ function stageBundle({ label, targets, backendUrl, currentConfig }) {
     join(stage, "BUILD-INFO.txt"),
     [
       `ISTV Reel Tool`,
+      // Version first: it's the one line support needs to know which build an
+      // editor is actually running. Sourced from package.json, which the release
+      // bumps alongside CSXS/manifest.xml.
+      `version:     ${version}`,
       `bundle:      ${label}`,
       `targets:     ${targets.join(", ")}`,
       `backendUrl:  ${backendUrl}`,
@@ -227,6 +231,7 @@ async function main() {
   const configPath = join(EXT_ROOT, "config.json");
   const currentConfig = existsSync(configPath) ? JSON.parse(readFileSync(configPath, "utf8")) : {};
   const backendUrl = resolveBackendUrl(args, currentConfig);
+  const version = JSON.parse(readFileSync(join(EXT_ROOT, "package.json"), "utf8")).version || "0.0.0";
 
   // Vendored binaries must exist for every requested target before we stage.
   const status = vendorStatus(args.targets);
@@ -239,7 +244,7 @@ async function main() {
   }
 
   mkdirSync(DIST, { recursive: true });
-  console.log(`Building ISTV Reel Tool`);
+  console.log(`Building ISTV Reel Tool v${version}`);
   console.log(`  backend: ${backendUrl}${isLoopbackUrl(backendUrl) ? "   (LOCAL — testing bundle, do not distribute)" : ""}`);
   console.log(`  targets: ${args.targets.join(", ")}${args.universal ? " (universal bundle)" : ""}`);
   console.log("");
@@ -250,7 +255,7 @@ async function main() {
 
   const built = [];
   for (const b of bundles) {
-    const { stage } = stageBundle({ ...b, backendUrl, currentConfig });
+    const { stage } = stageBundle({ ...b, backendUrl, currentConfig, version });
     const zip = join(DIST, `ISTV-Reel-Tool-${b.label}.zip`);
     rmSync(zip, { force: true });
     const { entries } = await zipDirectory(stage, zip);

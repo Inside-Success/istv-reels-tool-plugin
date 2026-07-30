@@ -7,9 +7,14 @@
  * model unit-testable without a GUI.
  */
 (function (root) {
-  // Conservative filler set for the editor's display aid. The real, audio-level
-  // filler cut happens server-side at export via the engine's cutFillersFromVideo.
-  const FILLERS = new Set(["um", "uh", "umm", "uhh", "er", "erm", "ah", "hmm", "mhm", "mm"]);
+  // Filler set for the editor's subtitle preview. MUST match export/media.cjs
+  // FILLER_WORDS exactly — this drives what the editor shows, that drives what
+  // renders, and any divergence means the preview lies about the export.
+  // Non-lexical filled pauses only: "ah" and "like" are real speech and were
+  // removed from both sets after they were found being dropped from captions.
+  const FILLERS = new Set([
+    "um", "umm", "uh", "uhh", "uhm", "erm", "er", "err", "hmm", "hm", "mm", "mhm", "mmhm",
+  ]);
 
   const MIN_SPAN = 0.3; // never collapse a span below this many seconds
 
