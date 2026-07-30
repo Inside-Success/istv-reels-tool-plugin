@@ -198,6 +198,35 @@ function removeSilencesFromSegments(segments, words, threshold = 0.45) {
   return resequenceSegments(next);
 }
 
+// Silence removal (removeSilencesFromSegments) shrinks the video's segment
+// timeline, but the caption word list is built upstream
+// (src/caption_builder.py::build_playback_words) against the ORIGINAL,
+// un-shrunk segments. Each word carries both its original source-timeline
+// fields (`time`/`sourceEnd`) and its previous (now stale) playback-local
+// fields (`localTime`/`end`) — this walks the NEW shrunk `segs` in the same
+// way build_playback_words() walks segments, recomputing `localTime`/`end`
+// from the source-timeline fields so burned-in captions stay in sync with
+// the shortened video instead of drifting after every removed silence gap.
+function remapPlaybackWordsToSegments(words, segs) {
+  const remapped = [];
+  let offset = 0;
+  (segs || []).forEach((seg) => {
+    const segStart = Number(seg.start_time_seconds) || 0;
+    const segEnd = Number(seg.end_time_seconds) || segStart;
+    (words || []).forEach((w) => {
+      const ws = Number(w.time ?? w.start) || 0;
+      const we = Number(w.sourceEnd ?? w.end ?? ws) || ws;
+      if (we <= segStart || ws >= segEnd) return;
+      const localStart = offset + Math.max(0, ws - segStart);
+      const localEndRaw = offset + Math.max(0, Math.min(we, segEnd) - segStart);
+      const localEnd = localEndRaw > localStart ? localEndRaw : localStart + MIN_WORD_SEC;
+      remapped.push({ ...w, localTime: localStart, end: localEnd });
+    });
+    offset += Math.max(0, segEnd - segStart);
+  });
+  return remapped.sort((a, b) => (Number(a.localTime) || 0) - (Number(b.localTime) || 0));
+}
+
 function assColor(style) {
   if (style === "boxed") return "&H00101010&";
   if (style === "karaoke") return "&H0000D7FF&";
@@ -633,9 +662,12 @@ async function exportReel(sourcePath, outputPath, payload) {
     if (!segs.length) throw new Error("No segments to export");
 
     const assPath = path.join(workDir, "subs.ass");
-    const playbackWords = words?.length
+    let playbackWords = words?.length
       ? words
       : (payload.playbackWords || []);
+    if (cutSilences && playbackWords.length) {
+      playbackWords = remapPlaybackWordsToSegments(playbackWords, segs);
+    }
 
     // "Original" resolution: keep the source's native pixel density. Crop to the
     // 9:16 reel aspect using whichever source axis is the limiting one, then skip
@@ -796,4 +828,5 @@ module.exports = {
   buildAssSubtitles,
   createProxy,
   removeSilencesFromSegments,
+  remapPlaybackWordsToSegments,
 };

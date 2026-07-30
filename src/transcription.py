@@ -1,21 +1,18 @@
+import re
 import socket
-import string
 import time
 from rev_ai import apiclient
 
 from src.cutter import normalize_word_timings
 
-# Non-lexical filled pauses only — never a real word like "like"/"so"/"well",
-# which are legitimate in normal speech and would break sentences if dropped.
-# Dropped unconditionally (not a toggle) so every consumer of the word list —
-# captions, reel selection, the transcript viewer — sees clean text without
-# needing to filter it themselves.
-_FILLER_WORDS = {"um", "umm", "uh", "uhh", "uhm", "erm", "er", "err", "hmm", "hm", "mm", "mhm", "mmhm"}
+# Rev.ai's bracketed non-speech tokens (<laugh>, [cough], (inaudible), etc.) —
+# these have no real spoken duration, so leaving them in the word list lets a
+# literal "<laugh>" show up as burned-in caption text.
+_NON_SPEECH_TAG_RE = re.compile(r"^[<\[(].+[>\])]$")
 
 
-def _is_filler(word_text: str) -> bool:
-    core = word_text.strip(string.whitespace + ".,!?;:\"'()-").lower()
-    return core in _FILLER_WORDS
+def _is_non_speech_tag(word_text: str) -> bool:
+    return bool(_NON_SPEECH_TAG_RE.match(word_text.strip()))
 
 
 def _is_transient(exc: Exception) -> bool:
@@ -165,12 +162,16 @@ def _parse(raw: dict) -> dict:
                 if words and punct:
                     words[-1]["word"] += punct
 
-    # Drop filler/disfluency words as a hard rule — done after punctuation
-    # merge above (not interleaved with it) so a filler's own trailing
-    # punctuation is dropped along with it, rather than left dangling on the
-    # previous real word (e.g. "Well, um, actually" -> "Well, actually", not
-    # "Well,, actually").
-    words = [w for w in words if not _is_filler(w["word"])]
+    # Drop bracketed non-speech tags only — done after punctuation merge above
+    # (not interleaved with it) so a dropped token's own trailing punctuation
+    # goes with it, rather than left dangling on the previous real word.
+    # Filler words (um/uh/...) are kept WITH their real timestamps: deleting
+    # them here would remove real spoken time from the word array while the
+    # audio itself is untouched, desyncing everything after a filler. They're
+    # hidden from burned-in captions downstream via hideFillersInSubtitles
+    # instead (export/media.cjs), which doesn't require deleting them from
+    # the timeline.
+    words = [w for w in words if not _is_non_speech_tag(w["word"])]
     for i, w in enumerate(words):
         w["index"] = i
 
