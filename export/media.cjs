@@ -3,7 +3,22 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-const FILLER_WORDS = new Set(["um", "uh", "umm", "uhh", "erm", "hmm", "ah", "like"]);
+// Non-lexical filled pauses ONLY — never a real word like "like", "so", "well",
+// or "ah", which are legitimate speech and silently corrupt a caption when
+// dropped ("I was like done" -> "I was done").
+//
+// This is the set src/transcription.py used to delete at parse time. It no longer
+// does: deleting fillers removed real spoken time from the word array while the
+// audio stayed untouched, so every word after a filler drifted out of sync.
+// Fillers now arrive here with real timestamps, and hiding them at render time is
+// the only thing between an "um" and a burned-in caption.
+//
+// Keep in sync with desktop/src/renderer/model.js (editor preview — a mismatch
+// means the editor shows something different from what renders) and
+// premiere-plugin/js/captions.js (the Premiere path).
+const FILLER_WORDS = new Set([
+  "um", "umm", "uh", "uhh", "uhm", "erm", "er", "err", "hmm", "hm", "mm", "mhm", "mmhm",
+]);
 
 const STALE_EXPORT_DIR_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6h
 
@@ -829,4 +844,8 @@ module.exports = {
   createProxy,
   removeSilencesFromSegments,
   remapPlaybackWordsToSegments,
+  // Exported so the editor preview's set (desktop/src/renderer/model.js) can be
+  // asserted identical to the one that actually renders — they drifted apart
+  // once before, which is how "like" ended up being cut from real captions.
+  FILLER_WORDS,
 };

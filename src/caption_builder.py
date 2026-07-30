@@ -249,7 +249,11 @@ DEFAULT_EXPORT_CANVAS: dict[str, Any] = {
     "captionX": 50,
     "captionY": 86,
     "captionWordGap": 0.34,
-    "hideFillersInSubtitles": False,
+    # True since fillers stopped being deleted upstream in transcription.py — see
+    # export_pipeline.py. Note the engine reads this key from the payload ROOT, not
+    # from the canvas dict, so this value documents the default rather than
+    # enforcing it; both payload builders set it explicitly.
+    "hideFillersInSubtitles": True,
     "cutFillersFromVideo": False,
     "cutSilences": False,
 }

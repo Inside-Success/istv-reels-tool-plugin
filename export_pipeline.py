@@ -116,7 +116,12 @@ def export_reel_mp4(reel: dict, source: Path, out_path: Path) -> None:
         "canvas": canvas,
         "captionStyle": "karaoke",
         "captionSize": int(canvas.get("captionSize") or 135),
-        "hideFillersInSubtitles": bool(is_v2),
+        # Always on, not v2-only. src/transcription.py used to delete fillers at
+        # parse time so nothing downstream ever saw them; it now keeps them (their
+        # timestamps hold real spoken time — removing them desynced every later
+        # word from the audio), which made this flag the only thing stopping an
+        # "um" from burning into a default-profile caption.
+        "hideFillersInSubtitles": True,
         "cutSilences": False,
         "quality": "high",
         "bitrate": "22M",
@@ -189,7 +194,10 @@ def export_reel_mp4_ex(reel: dict, source: Path, out_path: Path, options: dict) 
         "captionStyle": "karaoke",
         "captionSize": int(canvas.get("captionSize") or 135),
         "captionChunkSize": chunk,
-        "hideFillersInSubtitles": True,
+        # Honors the editor's "Remove fillers" toggle so the burned-in captions
+        # match the subtitle preview in BOTH toggle states. Defaults to True for
+        # any caller that omits it (fillers are no longer stripped upstream).
+        "hideFillersInSubtitles": bool(options.get("hideFillersInSubtitles", True)),
         "cutSilences": bool(options.get("cutSilences")),
         "quality": quality,
         "bitrate": bitrate,

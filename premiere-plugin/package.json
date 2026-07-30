@@ -1,6 +1,6 @@
 {
   "name": "istv-reel-tool-premiere",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "ISTV Reel Tool — Premiere Pro CEP extension. Turns a long-form interview into editable 9:16 reel sequences with karaoke-style captions inside Premiere. Ships for Windows x64 and macOS (Apple Silicon + Intel).",
   "license": "UNLICENSED",

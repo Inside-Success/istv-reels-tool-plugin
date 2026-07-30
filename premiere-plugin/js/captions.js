@@ -15,6 +15,33 @@
 
 const MIN_WORD_DISPLAY_SEC = 0.04;
 
+// Non-lexical filled pauses, dropped from caption text. The backend deliberately
+// keeps these in `timestamped_words` with real timestamps — deleting them at
+// transcription time removed real spoken time while the audio stayed untouched,
+// which drifted every later word out of sync — so each consumer hides them at
+// render time instead. The desktop/CLI engine does it via
+// hideFillersInSubtitles (export/media.cjs); the panel has no such toggle, so it
+// filters unconditionally, matching what editors saw before fillers began
+// arriving in the word list.
+//
+// Dropping a word never shifts the timeline: every word carries its own absolute
+// localTime/end, so the words around it keep their timings exactly.
+//
+// Non-lexical pauses ONLY — "like", "so", "well", and "ah" are real speech and
+// silently corrupt a caption when dropped. Keep in sync with export/media.cjs
+// FILLER_WORDS and desktop/src/renderer/model.js FILLERS.
+const FILLER_WORDS = new Set([
+  "um", "umm", "uh", "uhh", "uhm", "erm", "er", "err", "hmm", "hm", "mm", "mhm", "mmhm",
+]);
+
+function isFiller(word) {
+  return FILLER_WORDS.has(
+    String(word || "")
+      .toLowerCase()
+      .replace(/[^a-z]/g, "")
+  );
+}
+
 function num(v, d = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : d;
@@ -75,6 +102,7 @@ function normalizeWordTimeline(words) {
   for (const raw of sorted) {
     const text = String(raw.word || "").trim();
     if (!text) continue;
+    if (isFiller(text)) continue;
     const start = Math.max(0, num(raw.localTime != null ? raw.localTime : raw.time));
     let end = num(raw.end, start);
     if (end <= start) end = start + MIN_WORD_DISPLAY_SEC;
@@ -86,4 +114,6 @@ function normalizeWordTimeline(words) {
 module.exports = {
   buildPlaybackWords,
   normalizeWordTimeline,
+  FILLER_WORDS,
+  isFiller,
 };

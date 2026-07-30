@@ -81,12 +81,13 @@ function toExportReel(reel) {
     editor_cut_sheet: editorCutSheet,
     timestamped_words: words,
     options: {
-      // "Remove fillers" only hides filler words from the burned-in captions
-      // (always on server-side, see media.cjs hideFillersInSubtitles) and from
-      // the transcript editor preview (model.js) — it no longer cuts them out
-      // of the video, since word-level cuts risked exploding the ffmpeg command
-      // line on filler-heavy reels. reel.settings.removeFillers still drives the
-      // editor preview; there's nothing left for it to control at export time.
+      // "Remove fillers" hides filler words from the burned-in captions and from
+      // the transcript editor preview (model.js) — it no longer cuts them out of
+      // the video, since word-level cuts risked exploding the ffmpeg command line
+      // on filler-heavy reels. It IS passed through rather than assumed on: the
+      // engine used to hide fillers unconditionally, so unchecking the toggle
+      // showed fillers in the preview and still stripped them from the export.
+      hideFillersInSubtitles: !!reel.settings.removeFillers,
       cutSilences: !!reel.settings.removeSilences,
       canvas: {
         cropX: rf.cropX != null ? rf.cropX : 0.5,

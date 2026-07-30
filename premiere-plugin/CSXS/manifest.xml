@@ -12,11 +12,11 @@
   Host range: Premiere Pro 2021 (15.0) and newer. CSXS 9.0 = CEP 11.
 -->
 <ExtensionManifest Version="8.0" ExtensionBundleId="com.istv.reeltool"
-    ExtensionBundleVersion="1.2.0"
+    ExtensionBundleVersion="1.2.1"
     ExtensionBundleName="ISTV Reel Tool"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="com.istv.reeltool.panel" Version="1.2.0" />
+    <Extension Id="com.istv.reeltool.panel" Version="1.2.1" />
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>
