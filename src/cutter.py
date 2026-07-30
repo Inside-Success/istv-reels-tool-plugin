@@ -17,20 +17,27 @@ logger = logging.getLogger(__name__)
 LEAD_PAD_SECONDS = 0.10
 TAIL_PAD_SECONDS = 0.45
 NATURAL_TAIL_PAUSE = 0.28
-CONTINUATION_GAP_SEC = 0.42
+CONTINUATION_GAP_SEC = 0.6
 NEXT_WORD_GUARD_SEC = 0.03
 MAX_REEL_SECONDS = 60.0
 MIN_REEL_SECONDS = 15.0
 MAX_REEL_SPANS = 5
 MAX_CONTEXT_BRIDGE_SEGMENTS = 4
-MAX_WORD_CONTINUATION = 6
+MAX_WORD_CONTINUATION = 10
 MAX_CONTEXT_HEAD_PREPENDS = 2
 
 # Extra seconds the cutter may exceed (or fall under) the target window so reels
 # land on a COMPLETE thought / open with full context instead of a hard
 # mid-sentence cut. This is a soft ceiling used only when the story demands it
 # (extending a dangling ending or prepending setup) — never a target length.
-REEL_END_TOLERANCE_SECONDS = 10.0
+REEL_END_TOLERANCE_SECONDS = 20.0
+
+# Asymmetric floor flex: the cutter may accept a reel this far under the
+# target minimum rather than pad past a clean ending or into another
+# speaker's segment. Separate from REEL_END_TOLERANCE_SECONDS because the
+# under-floor and over-ceiling cases have different risk profiles (a slightly
+# short reel is fine; an overlong one risks losing viewer attention).
+REEL_FLOOR_TOLERANCE_SECONDS = 15.0
 
 
 def reel_max_seconds() -> float:
@@ -47,6 +54,11 @@ def reel_min_seconds() -> float:
         return float(os.getenv("REEL_MIN_SECONDS") or MIN_REEL_SECONDS)
     except (TypeError, ValueError):
         return MIN_REEL_SECONDS
+
+
+def reel_floor_seconds() -> float:
+    """Soft lower bound: how far under the target minimum a reel may land."""
+    return max(0.0, reel_min_seconds() - REEL_FLOOR_TOLERANCE_SECONDS)
 
 
 def context_aware_enabled() -> bool:
@@ -111,16 +123,14 @@ SELF_CONTAINED_OPENERS = frozenset({
 
 DANGLING_END_WORDS = frozenset({
     "and", "or", "but", "so", "to", "the", "a", "an", "of", "in", "on", "at",
-    "with", "for", "that", "which", "who", "when", "where", "as", "if", "because",
+    "with", "for", "which", "who", "when", "where", "as", "if", "because",
     "yeah", "um", "uh", "like", "you", "know",
-    "my", "your", "their", "our", "his", "her", "its", "this", "that", "these", "those",
+    "my", "your", "their", "our", "his", "her", "its",
     "into", "from", "about", "through", "during", "before", "after", "between",
     "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
     "will", "would", "could", "should", "can", "may", "might", "must",
-    "do", "does", "did", "not", "just", "very", "really", "also", "then", "while",
-    "even", "still", "more", "some", "any", "every", "each", "both", "all", "only",
+    "do", "does", "did", "not", "also",
     "stuck", "focused",
-    "i", "me", "we", "they", "them", "he", "she", "it", "or",
 })
 
 DANGLING_END_PHRASES = (
@@ -128,21 +138,14 @@ DANGLING_END_PHRASES = (
     "a lot of that",
     "and i think that",
     "so i take a lot of that",
-    "she was definitely",
     "but yeah",
     "i felt",
     "i feel",
     "i was",
     "i am",
-    "our mission is easy",
-    "those barriers",
-    "i knew this app",
-    "the doctors are signing notes saying",
     "into my",
     "years into my",
     "in the middle of my",
-    "too focused in the past or stuck",
-    "trying to grieve",
 )
 
 # Words that can end a reel even without terminal punctuation.
@@ -239,6 +242,13 @@ def _dedupe_repeated_segments(segment_ids: list[int], seg_by_id: dict[int, dict]
     return [head, *kept, tail]
 
 
+def _same_speaker_chain(a: dict | None, b: dict | None) -> bool:
+    """True only when both segments exist and belong to the same speaker."""
+    if not a or not b:
+        return False
+    return int(a.get("speaker", 0) or 0) == int(b.get("speaker", 0) or 0)
+
+
 def _next_segment_after(tail_id: int, seg_by_id: dict[int, dict]) -> int | None:
     """Next sentence segment in transcript order (not only tail_id + 1)."""
     ordered = sorted(seg_by_id.keys())
@@ -270,6 +280,13 @@ def _fill_context_bridges(
                 filled.append(sid)
             continue
         gap_ids = [g for g in range(prev + 1, sid) if g in seg_by_id]
+        # Never bridge through a different speaker's line (e.g. an
+        # interviewer's question or another interviewee's reaction sitting
+        # between two of the main speaker's picked segments) — stitching
+        # through it would splice a foreign voice into the reel.
+        anchor_seg = seg_by_id.get(prev) or seg_by_id.get(sid)
+        if gap_ids and any(not _same_speaker_chain(anchor_seg, seg_by_id.get(g)) for g in gap_ids):
+            gap_ids = []
         if gap_ids and len(gap_ids) <= MAX_CONTEXT_BRIDGE_SEGMENTS:
             trial = filled + gap_ids + [sid]
             if _ids_total_duration(trial, seg_by_id) <= max_len + 0.01:
@@ -396,6 +413,11 @@ def _extend_resolved_tail_ids(
         next_seg = seg_by_id.get(next_id)
         if not next_seg or _is_weak_continuation_segment(next_seg):
             break
+        if not _same_speaker_chain(last_seg, next_seg):
+            # A different speaker cutting in (interviewer, another
+            # interviewee, a reaction) never resolves the main speaker's
+            # dangling ending — stop rather than splice their line in.
+            break
         trial = ids + [next_id]
         if _ids_total_duration(trial, seg_by_id) > max_len + 0.01:
             break
@@ -449,7 +471,12 @@ def _tail_segment_resolves_bridge(prev_seg: dict, next_seg: dict) -> bool:
     next_text = str(next_seg.get("text") or "").strip()
     if not last_text or not next_text:
         return False
-    combined = f"{last_text} {next_text}".lower()
+    # Check only the actual seam (last few words of prev + first few of next) —
+    # a bridge phrase appearing earlier in a long segment, unrelated to this
+    # boundary, must not false-positive as "already resolved."
+    prev_words = last_text.split()[-4:]
+    next_words = next_text.split()[:4]
+    boundary = f"{' '.join(prev_words)} {' '.join(next_words)}".lower()
     bridge_phrases = (
         "into my career",
         "my career",
@@ -457,7 +484,7 @@ def _tail_segment_resolves_bridge(prev_seg: dict, next_seg: dict) -> bool:
         "in the middle of my career",
         "had to leave",
     )
-    if any(phrase in combined for phrase in bridge_phrases):
+    if any(phrase in boundary for phrase in bridge_phrases):
         return True
     first = _clean_token(next_text.split()[0])
     return first in STRONG_END_WORDS
@@ -506,6 +533,10 @@ def build_reel_cut_sheet(
     segment_ids = _cap_segment_ids(segment_ids, seg_by_id, soft_cap, protect_ends=protect_ends)
     segment_ids = _extend_resolved_tail_ids(segment_ids, seg_by_id, soft_cap)
     segment_ids = _trim_dangling_tail_ids(segment_ids, seg_by_id)
+    # Trimming retreats backward and can free up room under soft_cap that the
+    # pre-trim extend pass never had — re-check whether the (now shorter) tail
+    # can resolve into the next same-speaker segment before finalizing.
+    segment_ids = _extend_resolved_tail_ids(segment_ids, seg_by_id, soft_cap)
     reel["segment_ids"] = segment_ids
 
     runs = _contiguous_runs(segment_ids)
@@ -705,7 +736,7 @@ def _cap_segment_ids(
 
 def _trim_dangling_tail_ids(segment_ids: list[int], seg_by_id: dict[int, dict]) -> list[int]:
     ids = list(segment_ids)
-    while ids:
+    while len(ids) > 1:
         last = seg_by_id.get(ids[-1])
         if not last:
             break
@@ -753,7 +784,7 @@ def _clamp_end_to_emotional_landing(
     if last_in is not None:
         tok = _clean_token(str(last_in.get("word") or ""))
         ends_clean = str(last_in.get("word") or "").rstrip()[-1:] in ".!?"
-        if not ends_clean and (tok in DANGLING_END_WORDS or tok in INCOMPLETE_END_WORDS):
+        if not ends_clean and tok in DANGLING_END_WORDS:
             return max(floor + NATURAL_TAIL_PAUSE, _float(last_in.get("start")) - NEXT_WORD_GUARD_SEC)
     return end
 
@@ -774,6 +805,11 @@ def _extend_end_through_continuation_words(
         cur = words_by_index.get(idx)
         nxt = words_by_index.get(idx + 1)
         if not cur or not nxt:
+            break
+        if str(cur.get("word") or "").rstrip()[-1:] in ".!?":
+            # The current word already ends a complete sentence — a bare
+            # token like "do" being in DANGLING_END_WORDS must not override
+            # its own terminal punctuation and pull in the next sentence.
             break
         cur_tok = _clean_token(str(cur.get("word") or ""))
         nxt_tok = _clean_token(str(nxt.get("word") or ""))
@@ -828,7 +864,7 @@ def _segment_text_dangles(text: str) -> bool:
     last = tokens[-1]
     if last in STRONG_END_WORDS:
         return False
-    if last in DANGLING_END_WORDS or last in INCOMPLETE_END_WORDS:
+    if last in DANGLING_END_WORDS:
         return True
     lower = cleaned.lower()
     if any(lower.endswith(phrase) for phrase in DANGLING_END_PHRASES):
