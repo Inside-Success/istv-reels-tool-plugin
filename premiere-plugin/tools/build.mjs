@@ -48,18 +48,37 @@ const BUNDLE_LABEL = {
  * — no node_modules (the vendored binaries replace it), no tests, no build tools,
  * no .debug (which would open a remote debug port on an editor's machine).
  */
-const INCLUDE = ["CSXS", "src", "presets", "config.json", "package.json", "README.md"];
+const INCLUDE = [
+  "CSXS",
+  "index.html", // the panel's MainPath (see CSXS/manifest.xml)
+  "js",
+  "jsx",
+  "css",
+  "presets",
+  "config.json",
+  "package.json",
+  "README.md",
+];
 const EXCLUDE_NAMES = new Set([
   "node_modules", "dist", "vendor", "tools", "test", ".git", ".gitignore", ".debug", "package-lock.json",
 ]);
 
 function parseArgs(argv) {
-  const args = { targets: null, backendUrl: "", allowLocalhost: false, universal: false, authToken: null };
+  const args = { targets: null, backendUrl: "", allowLocalhost: false, universal: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--backend-url") args.backendUrl = String(argv[++i] || "").trim();
-    else if (a === "--auth-token") args.authToken = String(argv[++i] || "").trim();
-    else if (a === "--allow-localhost") args.allowLocalhost = true;
+    else if (a === "--auth-token") {
+      // Deliberately rejected, not accepted-and-ignored. These bundles are handed
+      // out; a token inside one is a published token, and anyone who unzips it can
+      // spend the Rev.ai and Anthropic budget. Editors enter it in the panel once
+      // and it is stored per-machine (js/config.js -> ~/.istv-reel-tool/config.json).
+      throw new Error(
+        "--auth-token is not supported: the access token must never be baked into a distributed bundle.\n" +
+          "  Send editors the token separately; the panel prompts for it and saves it per-machine.\n" +
+          "  See premiere-plugin/README.md (Access token)."
+      );
+    } else if (a === "--allow-localhost") args.allowLocalhost = true;
     else if (a === "--universal") args.universal = true;
     else if (a === "--targets") {
       args.targets = String(argv[++i] || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -72,11 +91,11 @@ function parseArgs(argv) {
 }
 
 /** Reuse the panel's own loopback test so the guard and the runtime agree. */
-const { isLoopbackUrl } = await import(`file://${join(EXT_ROOT, "src", "core", "config.js").replace(/\\/g, "/")}`)
+const { isLoopbackUrl } = await import(`file://${join(EXT_ROOT, "js", "config.js").replace(/\\/g, "/")}`)
   .then((m) => m.default || m)
   .catch(async () => {
     const req = (await import("node:module")).createRequire(import.meta.url);
-    return req(join(EXT_ROOT, "src", "core", "config.js"));
+    return req(join(EXT_ROOT, "js", "config.js"));
   });
 
 /**
@@ -120,7 +139,7 @@ function dirSize(dir) {
 }
 
 /** Stage one bundle: extension payload + vendored binaries + installers + guide. */
-function stageBundle({ label, targets, backendUrl, authToken, currentConfig }) {
+function stageBundle({ label, targets, backendUrl, currentConfig }) {
   const stage = join(DIST, `ISTV-Reel-Tool-${label}`);
   const extDir = join(stage, EXT_ID);
   rmSync(stage, { recursive: true, force: true });
@@ -136,8 +155,10 @@ function stageBundle({ label, targets, backendUrl, authToken, currentConfig }) {
   }
 
   // 2) config.json with the release backend baked in.
+  // Never a token here - see parseArgs. Strip one if config.json happens to carry
+  // a local testing token, so it cannot ride along into a distributed bundle.
   const cfg = { ...currentConfig, backendUrl };
-  if (authToken !== null) cfg.authToken = authToken;
+  delete cfg.authToken;
   writeFileSync(join(extDir, "config.json"), JSON.stringify(cfg, null, 2) + "\n", "utf8");
 
   // 3) Vendored binaries for this bundle's target(s) only.
@@ -229,7 +250,7 @@ async function main() {
 
   const built = [];
   for (const b of bundles) {
-    const { stage } = stageBundle({ ...b, backendUrl, authToken: args.authToken, currentConfig });
+    const { stage } = stageBundle({ ...b, backendUrl, currentConfig });
     const zip = join(DIST, `ISTV-Reel-Tool-${b.label}.zip`);
     rmSync(zip, { force: true });
     const { entries } = await zipDirectory(stage, zip);

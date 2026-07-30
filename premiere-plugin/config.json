@@ -1,4 +1,7 @@
 {
-  "backendUrl": "http://127.0.0.1:8722",
-  "canvas": { "width": 1080, "height": 1920 }
+  "backendUrl": "https://istv-reels-tool-plugin.onrender.com",
+  "canvas": {
+    "width": 1080,
+    "height": 1920
+  }
 }

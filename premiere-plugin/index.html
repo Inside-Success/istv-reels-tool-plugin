@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ISTV Reel Tool</title>
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand"><span class="logo"></span>ISTV Reel Tool</div>
+        <span id="hostBadge" class="badge">Premiere</span>
+      </header>
+
+      <nav class="wizard-nav">
+        <button id="stepBackBtn" class="btn nav-btn" title="Previous step">&lsaquo; Back</button>
+        <div class="wizard-dots">
+          <span class="wdot" data-step="1" title="Source">1</span>
+          <span class="wdot" data-step="2" title="Working">2</span>
+          <span class="wdot" data-step="3" title="Reels">3</span>
+        </div>
+        <button id="stepNextBtn" class="btn nav-btn" title="Next step">Next &rsaquo;</button>
+      </nav>
+
+      <!-- Backend access token. Hidden unless the backend actually rejects us
+           (401) — the token is not baked into the published bundle, so each
+           editor enters it once and it is saved to ~/.istv-reel-tool/config.json.
+           Deliberately NOT a wizard .step: it is a blocker, not a stage. -->
+      <div id="authCard" class="auth-card hidden">
+        <div class="auth-head">Backend access required</div>
+        <div id="authMsg" class="hint"></div>
+        <label class="field">
+          <span>Access token</span>
+          <input id="authToken" type="password" placeholder="paste the token you were given" autocomplete="off" />
+        </label>
+        <div class="hstack">
+          <button id="authSaveBtn" class="btn primary small" title="Save this token for this machine and check it against the backend">Save &amp; verify</button>
+          <button id="authHideBtn" class="btn ghost tiny" title="Dismiss">Hide</button>
+        </div>
+        <div id="authWhere" class="auth-where muted"></div>
+      </div>
+
+      <!-- STEP 1 — source + generate -->
+      <section class="step" data-step="1" id="step1">
+        <h2 class="step-title">Source</h2>
+        <div id="sourceLine" class="source-line muted">Detecting active sequence…</div>
+
+        <label class="field">
+          <span>Speaker name</span>
+          <input id="speaker" type="text" placeholder="e.g. Caylene Salii" title="Corrects the spelling of the speaker's name in the captions" />
+        </label>
+        <label class="field">
+          <span>How many reels</span>
+          <input id="numReels" type="number" min="1" max="20" value="10" title="How many reels to generate from the interview" />
+        </label>
+
+        <button id="generateBtn" class="btn primary block big" disabled title="Extract audio, transcribe it, then pick the best moments">Generate the reels</button>
+
+        <button id="sourceDetailToggle" class="btn ghost tiny block" title="Re-detect source, re-transcribe, view transcript, or build a smooth-playback proxy">Show more</button>
+        <div id="sourceDetail" class="step1-extra hidden">
+          <label class="check" title="Ignore the saved transcript and transcribe this clip again">
+            <input id="forceTranscribe" type="checkbox" />
+            <span>Re-transcribe</span>
+          </label>
+          <div class="hstack">
+            <button id="detectBtn" class="btn ghost tiny" title="Re-read the first video clip on your active timeline as the interview to transcribe">&#8635; Re-detect</button>
+            <button id="viewTranscriptBtn" class="btn ghost tiny hidden" title="Read the transcript and every reel's subtitle lines">Transcript</button>
+            <button id="smoothBtn" class="btn ghost tiny" title="Build a lightweight proxy once (~2-3 min) so 4K footage plays back smoothly. Exports still use full 4K quality.">Smooth playback</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- STEP 2 — pipeline progress -->
+      <section id="pipeline" class="step hidden" data-step="2">
+        <h2 class="step-title">Working</h2>
+        <ul id="steps" class="steps"></ul>
+        <div id="pipeMsg" class="hint"></div>
+      </section>
+
+      <!-- STEP 3 — reels + build. Nothing but the Build button shows by
+           default; per-reel review/captions/SRT controls are still fully
+           there, just tucked behind "Show reel details" instead of always
+           on screen. -->
+      <section id="reelsCard" class="step hidden" data-step="3">
+        <h2 class="step-title">Reels <span class="sub">(<span id="reelCount">0</span>)</span></h2>
+        <button id="buildAllBtn" class="btn primary block big" title="Create a 9:16 sequence for every reel with captions already placed on it">Build the reels</button>
+        <button id="reelsDetailToggle" class="btn ghost tiny block" title="Show each reel's title, caption, and per-reel Build/Captions/SRT controls">Show reel details</button>
+        <div id="reelsDetail" class="hidden">
+          <div class="row-between">
+            <div class="legend" title="What each reel's status means">
+              <span>&#9675; not built</span>
+              <span>&#10003; done</span>
+              <span>&#10005; failed</span>
+            </div>
+            <button id="srtAllBtn" class="btn ghost tiny" title="Save .srt caption files for every reel (backup / manual re-drag)">Save all SRTs</button>
+          </div>
+          <div id="reels" class="reels"></div>
+        </div>
+      </section>
+
+      <div id="toast" class="toast hidden"></div>
+
+      <!-- Transcript & subtitles viewer -->
+      <div id="transcriptModal" class="modal hidden">
+        <div class="modal-box">
+          <div class="modal-head">
+            <span class="modal-title">Transcript &amp; subtitles</span>
+            <span class="hstack">
+              <button id="saveTxtBtn" class="btn small ghost" title="Save the transcript + subtitles as a .txt next to your video">Save .txt</button>
+              <button id="closeTranscriptBtn" class="btn small" title="Close">&times; Close</button>
+            </span>
+          </div>
+          <div id="transcriptBody" class="modal-body"></div>
+        </div>
+      </div>
+
+      <!-- Caption editor (§4) — cue list, per-word timing, live preview -->
+      <div id="captionsModal" class="modal hidden">
+        <div class="modal-box wide">
+          <div class="modal-head">
+            <span class="modal-title" id="capModalTitle">Captions</span>
+            <span class="hstack">
+              <label class="field inline" title="Style preset applied to this reel's captions">
+                <span>Template</span>
+                <select id="capTemplateSelect"></select>
+              </label>
+              <button id="capPullBtn" class="btn small ghost" title="Best-effort: try to read an existing caption track back from the active Premiere sequence">&uarr; Pull from Premiere</button>
+              <button id="capImportSrtBtn" class="btn small ghost" title="Replace this reel's captions with an imported .srt (line-level — karaoke unavailable until re-aligned)">Import SRT</button>
+              <button id="capRegenBtn" class="btn small ghost" title="Regenerate captions from the transcript, discarding edits made here">&#8635; Regenerate</button>
+              <button id="capCloseBtn" class="btn small" title="Close">&times; Close</button>
+            </span>
+          </div>
+          <input type="file" id="capSrtFileInput" accept=".srt" class="hidden" />
+          <div id="capValidation" class="cap-validation hidden"></div>
+          <div class="cap-body">
+            <div class="cap-cues" id="capCueList"></div>
+            <div class="cap-side">
+              <div class="cap-preview-card">
+                <div class="cap-preview-head">
+                  <span>Live preview</span>
+                  <button id="capPreviewPlayBtn" class="btn tiny ghost" title="Sweep the selected cue's words using their real timing">&#9654; Preview</button>
+                </div>
+                <div id="capPreviewStage" class="cap-preview-stage"></div>
+                <div class="cap-preview-note">Preview shows word timing for reference. In Premiere, karaoke displays as sequential phrase pop-ins, not this in-line sweep.</div>
+              </div>
+              <div class="cap-shift-card">
+                <label class="field">
+                  <span>Shift all cues (seconds)</span>
+                  <input id="capShiftInput" type="number" step="0.1" value="0" />
+                </label>
+                <button id="capShiftBtn" class="btn small ghost block">Apply shift</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CEP bridge, then the controller (which require()s the Node modules). -->
+    <script src="js/lib/CSInterface.js"></script>
+    <script src="js/main.js"></script>
+  </body>
+</html>

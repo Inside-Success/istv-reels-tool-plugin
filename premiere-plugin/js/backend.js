@@ -1,16 +1,19 @@
 "use strict";
 
 /**
- * Client for the hosted backend. Uses Node's built-in http/https — CEP panels have
- * Node.js, so nothing platform-specific happens here.
+ * Client for the hosted backend (unchanged contract from the desktop app):
+ * uploads compressed audio and polls the transcription / selection jobs. Uses
+ * Node's built-in http/https — CEP panels have Node.js, so this ports verbatim.
  *
  *   GET  /health              liveness + which keys are configured
  *   POST /transcribe          raw audio bytes -> { job_id }
  *   POST /select              { transcript, name, num_reels } -> { job_id }
  *   GET  /jobs/{id}           poll -> status + transcript|analysis
  *
- * If config.json carries an authToken it is sent as `Authorization: Bearer …` on
- * every request; a backend that doesn't check it simply ignores the header.
+ * Every request carries `Authorization: Bearer <token>` when a token is
+ * configured (see js/config.js). /transcribe, /select and /jobs are all gated by
+ * that token server-side because they spend real money and return transcripts; a
+ * local backend running without ISTV_API_TOKEN simply ignores the header.
  */
 
 const fs = require("fs");
@@ -225,4 +228,16 @@ async function selectReels(transcript, name, numReels, { onStatus } = {}) {
   return final.analysis;
 }
 
-module.exports = { health, verifyToken, uploadAudio, transcribe, pollJob, selectReels, baseUrl };
+module.exports = {
+  health,
+  verifyToken,
+  uploadAudio,
+  transcribe,
+  pollJob,
+  selectReels,
+  // A getter, not a captured value: the effective URL can change while the panel
+  // is open (env override, user config), and error messages must show the real one.
+  get BACKEND_URL() {
+    return baseUrl();
+  },
+};

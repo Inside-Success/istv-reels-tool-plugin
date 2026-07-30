@@ -3,7 +3,7 @@
   ISTV Reel Tool — Premiere Pro CEP extension manifest.
 
   CEP (Common Extensibility Platform) panel: an HTML/JS UI (index.html) plus an
-  ExtendScript host layer (src/host/host.jsx) that drives Premiere's scripting DOM.
+  ExtendScript host layer (jsx/host.jsx) that drives Premiere's scripting DOM.
   Node.js is enabled in the panel (see the CEFCommandLine parameters below) so it
   can reuse the repo's proven backend client + bundled FFmpeg for audio export,
   exactly like the old Electron app did — the only difference is that Premiere,
@@ -12,11 +12,11 @@
   Host range: Premiere Pro 2021 (15.0) and newer. CSXS 9.0 = CEP 11.
 -->
 <ExtensionManifest Version="8.0" ExtensionBundleId="com.istv.reeltool"
-    ExtensionBundleVersion="1.0.0"
+    ExtensionBundleVersion="1.2.0"
     ExtensionBundleName="ISTV Reel Tool"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="com.istv.reeltool.panel" Version="1.0.0" />
+    <Extension Id="com.istv.reeltool.panel" Version="1.2.0" />
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>
@@ -34,8 +34,8 @@
     <Extension Id="com.istv.reeltool.panel">
       <DispatchInfo>
         <Resources>
-          <MainPath>./src/panel/index.html</MainPath>
-          <ScriptPath>./src/host/host.jsx</ScriptPath>
+          <MainPath>./index.html</MainPath>
+          <ScriptPath>./jsx/host.jsx</ScriptPath>
           <CEFCommandLine>
             <Parameter>--enable-nodejs</Parameter>
             <Parameter>--mixed-context</Parameter>
@@ -49,14 +49,17 @@
         <UI>
           <Type>Panel</Type>
           <Menu>ISTV Reel Tool</Menu>
+          <!-- Squarer default (was 440x780 — long and narrow) now that the
+               wizard (index.html/main.js) shows one step at a time instead of
+               every card stacked vertically at once. -->
           <Geometry>
             <Size>
-              <Height>780</Height>
-              <Width>440</Width>
+              <Height>560</Height>
+              <Width>480</Width>
             </Size>
             <MinSize>
-              <Height>420</Height>
-              <Width>360</Width>
+              <Height>400</Height>
+              <Width>380</Width>
             </MinSize>
             <MaxSize>
               <Height>1600</Height>

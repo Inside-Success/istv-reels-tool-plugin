@@ -2,7 +2,7 @@
  * ISTV Reel Tool — ExtendScript host layer for Premiere Pro.
  *
  * This is the half of the plugin that talks to Premiere's scripting DOM. The
- * HTML panel (src/panel/panel.js) does the AI work (audio export → backend transcribe →
+ * HTML panel (js/main.js) does the AI work (audio export → backend transcribe →
  * Claude reel selection → caption timing) and then hands each reel here to be
  * BUILT INSIDE PREMIERE:
  *
@@ -21,7 +21,7 @@
  */
 
 // NOTE: json2.js (JSON polyfill) and captions.jsx (ISTV_Captions) are loaded
-// explicitly by the panel (src/panel/panel.js → loadHost) via $.evalFile with absolute
+// explicitly by the panel (js/main.js → loadHost) via $.evalFile with absolute
 // paths BEFORE any ISTV function runs. We intentionally do NOT use //@include
 // here because the ExtendScript preprocessor include directive is not reliably
 // honored when CEP loads a ScriptPath, which previously left JSON undefined and
@@ -171,6 +171,10 @@ ISTV = (function () {
    *     reframe:  { cropX, cropY, zoom },
    *     captionBlocks: [ { start_time_seconds, end_time_seconds, text,
    *                        words:[{word, localTime, end}] } ],   // REEL seconds
+   *     srtText: "1\n00:00:00,000 --> ...",   // pre-rendered from the JSON
+   *                                            // caption master (js/captionDoc.js)
+   *     xmlText: "<?xml version=...",         // pre-rendered FCP7 XML (js/premiereXml.js)
+   *                                            // — the primary caption path, see captions.jsx
    *   } ]
    * }
    */
@@ -324,14 +328,23 @@ ISTV = (function () {
     // Apply the 9:16 reframe to every placed video clip (uniform per reel).
     applyReframeToTrack(vTrack, reel.reframe || {}, master, canvas, warnings);
 
-    // Captions.
+    // Captions. Primary path is xmlText (FCP XML import — see captions.jsx);
+    // it covers both "native" (one clip per cue) and "karaoke" (chunked pop)
+    // styles, so gate on any caption payload being present, not just blocks
+    // (a pure-line-level doc has no word-level captionBlocks but still has
+    // cues to render via xmlText).
+    var hasCaptionPayload = !!(reel.xmlText || reel.srtText || (reel.captionBlocks && reel.captionBlocks.length));
     var captionResult = { mode: payload.captionMode || "karaoke", count: 0 };
-    if (payload.captionMode !== "none" && reel.captionBlocks && reel.captionBlocks.length) {
+    if (payload.captionMode !== "none" && hasCaptionPayload) {
       captionResult = ISTV_Captions.apply(seq, reel.captionBlocks, {
         mode: payload.captionMode || "karaoke",
         canvas: canvas,
         mogrtPath: payload.mogrtPath || "",
         reelName: seqName,
+        srtText: reel.srtText || "",
+        xmlText: reel.xmlText || "",
+        durationSec: playhead,
+        bin: bin, // import the caption sequence alongside its reel, not at project root
       });
       if (captionResult.warning) warnings.push(seqName + ": " + captionResult.warning);
     }
@@ -572,10 +585,49 @@ ISTV = (function () {
     return ok({ app: app.appName || "PPRO", version: app.version, hasProject: !!app.project });
   }
 
+  /** Best-effort pull-back of an existing caption track (§7c) — delegates
+   *  entirely to the one caption bridge module (jsx/captions.jsx); see its
+   *  pullCaptionTrack for why this is expected to report "unsupported" on
+   *  most Premiere/CEP builds rather than silently doing nothing. */
+  function pullCaptions() {
+    try {
+      var seq = app.project.activeSequence;
+      if (!seq) return err("No active sequence.");
+      return ok(ISTV_Captions.pullCaptionTrack(seq));
+    } catch (e) {
+      return err("pullCaptions failed", e.toString());
+    }
+  }
+
+  /**
+   * The exact frame rate buildOneReel will apply to the reel sequence —
+   * Premiere's own footage interpretation, same as sourceFrameRate() below
+   * uses internally, falling back to whatever the panel already probed via
+   * ffprobe. Exposed so the panel can build the caption XML's frame numbers
+   * against this SAME value (see js/main.js) instead of the raw ffprobe fps
+   * alone — the two can genuinely differ for some footage, and a caption
+   * sequence built at one fps nested inside a reel running at another drifts
+   * out of sync over the length of the reel (reported as captions starting
+   * in sync and slowly lagging later — a mismatched-frame-rate signature,
+   * not a placement bug).
+   */
+  function getSourceFrameRate(payloadJson) {
+    try {
+      var p = JSON.parse(payloadJson);
+      var master = findOrImportItem(p.sourcePath);
+      if (!master) return err("Could not find or import the source file: " + p.sourcePath);
+      return ok({ fps: sourceFrameRate(master, p.fallbackFps || 0) });
+    } catch (e) {
+      return err("getSourceFrameRate failed", e.toString());
+    }
+  }
+
   return {
     ping: ping,
     getActiveSource: getActiveSource,
     buildReels: buildReels,
     attachProxy: attachProxy,
+    pullCaptions: pullCaptions,
+    getSourceFrameRate: getSourceFrameRate,
   };
 })();

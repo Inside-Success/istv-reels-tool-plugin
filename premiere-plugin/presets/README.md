@@ -1,9 +1,8 @@
 # Bundled presets (one-time setup)
 
-The plugin looks for two optional template files here. Both are **binary Adobe
-formats** that must be created once from inside Premiere (they can't be authored
-by hand). The plugin works without them — it falls back gracefully — but they
-make the output exact.
+Only the sequence preset below is needed. Captions build from a plain XML
+sequence import (`js/premiereXml.js`) — no template file to create, ship, or
+keep in sync.
 
 ## 1. `ISTV_Vertical_1080x1920.sqpreset` — the 9:16 sequence raster
 
@@ -24,24 +23,22 @@ If it's missing, the plugin creates each reel sequence with the project default
 frame size and posts a warning telling the editor to run **Sequence ▸ Auto
 Reframe** or set the raster manually.
 
-## 2. `captions.mogrt` — the karaoke caption text template
+## 2. `captions.mogrt` — LEGACY, not needed by default
 
-A Motion Graphics template with **one editable text field**. The plugin drops
-one instance per caption block and sets its text, giving word-by-word "pop"
-karaoke (1-word blocks) or chunked captions (2-word blocks).
+Captions no longer need a MOGRT file. The default path builds an XML sequence
+(Premiere's built-in "GraphicAndType" graphic, same pattern as the
+[JorianWoltjer/AutoCaptions](https://github.com/JorianWoltjer/AutoCaptions)
+tool) with the text baked in, and imports it — no template to author or ship.
+Word count per pop is set by the active caption template's `karaoke.chunkSize`
+in `presets/caption-templates.json`. This still isn't an in-line
+word-highlight sweep — Premiere's scripting API can't recolor part of a single
+text parameter, so a true karaoke sweep isn't achievable from this plugin
+either way.
 
-**Create it once:**
-1. **Window ▸ Essential Graphics** → **New Layer ▸ Text**.
-2. Style it like the reel captions: large, centered, bold, white with a dark
-   stroke/shadow, positioned in the lower third.
-3. Select the text layer, and in the Essential Graphics **Edit** tab check the
-   box next to the text property so it becomes an **exposed/editable** control
-   (this is the field the plugin sets per instance).
-4. **Export As Motion Graphics Template…**, name it `captions`, save it here as
-   `captions.mogrt`.
-
-If it's missing, the plugin falls back to a **native caption track** (writes an
-`.srt` and imports it) and posts a warning.
-
-> These two files are intentionally **not** committed (see `.gitignore`) because
-> they're environment/brand specific — each editor generates them once.
+If you still want the old MOGRT-based path for some reason, `jsx/captions.jsx`
+`applyKaraoke` is kept and works exactly as before — it's just no longer the
+default (the panel always supplies `xmlText`, which takes priority). Building
+one requires: **Window ▸ Essential Graphics** → **New Layer ▸ Text**, expose
+the text property as an editable control, then **Export As Motion Graphics
+Template…** → save here as `captions.mogrt`. Not committed (see `.gitignore`)
+since it's environment/brand specific.

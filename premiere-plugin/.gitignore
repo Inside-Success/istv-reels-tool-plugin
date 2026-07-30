@@ -1,11 +1,10 @@
-# Build-time only — the shipped bundle carries vendor/ffmpeg instead of node_modules.
 node_modules/
-
-# Release bundles.
 dist/
 
-# Vendored FFmpeg/ffprobe binaries: ~145 MB per platform, fetched on demand by
-# `npm run vendor`. Never committed.
+# Vendored FFmpeg/ffprobe binaries — ~400 MB. Left over from the previous
+# packaging approach and still on disk; the panel now resolves FFmpeg from
+# ffmpeg-static/ffprobe-static in node_modules (see js/ffmpeg.js). Never
+# committed either way.
 vendor/
 
 # Environment/brand-specific binary templates — each editor generates their own

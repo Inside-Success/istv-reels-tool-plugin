@@ -122,13 +122,18 @@ A blueprint is committed at [`../render.yaml`](../render.yaml):
 1. Render dashboard → **New ▸ Blueprint** → pick this repo.
 2. Render prompts for `REVAI_API_KEY` and `CLAUDE_API_KEY` (they're marked
    `sync: false`, so they stay out of git). `ISTV_API_TOKEN` is generated for you.
-3. After the deploy, copy the generated `ISTV_API_TOKEN` from
-   **Environment**, then build the plugin against it:
+3. After the deploy, build the plugin against the deployed URL:
 
 ```bash
 cd premiere-plugin
-node tools/build.mjs --backend-url https://<service>.onrender.com --auth-token <token>
+node tools/build.mjs --backend-url https://<service>.onrender.com
 ```
+
+   Then copy the generated `ISTV_API_TOKEN` from **Environment** and give it to
+   each editor separately. It is deliberately **not** baked into the bundle — that
+   zip is handed out, so a token inside it would be published. Editors paste it
+   into the panel once and it is saved to `~/.istv-reel-tool/config.json`. See
+   [`../premiere-plugin/README.md`](../premiere-plugin/README.md#access-token).
 
 4. Verify: `curl https://<service>.onrender.com/health` should return
    `revai_key: true, claude_key: true`.

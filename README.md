@@ -1,55 +1,35 @@
 # The Reels Tool Logic
 
 Turn a long-form documentary into short-form 9:16 karaoke reels. This repo has
-**four components** that share the same core pipeline (`src/`):
+**four components** that share the same core pipeline (`src/`); the CLI and
+desktop app also share the FFmpeg render engine (`export/`), while the Premiere
+plugin doesn't render at all — Premiere does.
 
 | Component | What it is | Folder |
 |-----------|-----------|--------|
-| **Premiere plugin** | CEP extension: builds editable 9:16 karaoke reel **sequences inside Premiere** (Premiere renders, not FFmpeg). Ships to editors on Windows + macOS as a one-double-click install. | [`premiere-plugin/`](premiere-plugin/) |
+| **CLI tool** | Drop a video in `input/`, run one command, get reels in `generated_data/`. | repo root (`generate_reels.py`) |
 | **Backend** | FastAPI service: Rev.ai transcription + Claude reel selection. Holds the API keys. | [`backend/`](backend/) |
-| **CLI tool** | Drop a video in `input/`, run one command, get rendered MP4 reels in `generated_data/`. | repo root (`generate_reels.py`) |
-| **Desktop editor** | Electron app (Premiere-style) to edit + export reels. Superseded by the Premiere plugin; still the CLI-render front end. | [`desktop/`](desktop/) |
+| **Desktop editor** | Cross-platform Electron app (Premiere-style) to edit + export reels. Only compressed audio leaves the machine. | [`desktop/`](desktop/) |
+| **Premiere plugin** | CEP extension: same AI brain, but builds editable 9:16 karaoke reel **sequences inside Premiere** (Premiere renders, not FFmpeg). | [`premiere-plugin/`](premiere-plugin/) |
 
-The plugin is the product editors use. The CLI and desktop app share the FFmpeg
-render engine (`export/`); the plugin doesn't render at all — Premiere does.
+## First-time setup (all components)
 
-## First-time setup
-
-Prerequisites depend on which component you're working on:
-
-| Component | Needs |
-|---|---|
-| Premiere plugin (**editors**) | nothing — the installer bundles FFmpeg |
-| Premiere plugin (**building it**) | Node.js 18+ |
-| Backend | Python 3.9+ |
-| CLI / desktop | Python 3.9+, Node.js, and FFmpeg + ffprobe on your PATH |
-
-1. **Add your keys** (backend and CLI only):
+1. **Install prerequisites:** Python 3.11+, Node.js, and FFmpeg + ffprobe on your PATH.
+2. **Add your keys:**
    ```bash
    cp .env.example .env       # then edit .env and fill in the two keys
    ```
    `.env` is gitignored and never committed. You need a **Rev.ai** key and an
    **Anthropic (Claude)** key — see `.env.example` for where to get them.
-2. **Python deps:** `pip install -r requirements.txt` (CLI) and, for the backend,
+3. **Python deps:** `pip install -r requirements.txt` (CLI) and, for the backend,
    `pip install -r backend/requirements.txt`.
 
-### Run the backend (needed by the plugin and the desktop app)
+### Run the backend (needed by the desktop app and the plugin)
 ```bash
 python -m uvicorn backend.app:app --port 8722
 ```
-
-### Ship the Premiere Pro plugin to editors
-```bash
-cd premiere-plugin
-npm install                       # build-time only
-npm run vendor                    # fetch FFmpeg for Windows + both Macs
-node tools/build.mjs --backend-url https://reels.your-host.com
-```
-That writes three zips to `premiere-plugin/dist/` — one for Windows x64, one for
-Apple Silicon, one for Intel Macs. Send each editor the one for their machine; they
-unzip and double-click `install.bat` or `install.command`. Either OS can build for
-both. `npm test` runs the plugin's 119-test suite. Full details in
-[`premiere-plugin/README.md`](premiere-plugin/README.md).
+For the hosted deployment (Render blueprint, container, auth token, Postgres job
+store) see [`render.yaml`](render.yaml) and [`backend/README.md`](backend/README.md).
 
 ### Run the desktop editor
 ```bash
@@ -59,6 +39,30 @@ npm start        # opens the editor window
 ```
 The app talks to the backend at `http://127.0.0.1:8722` (override with `ISTV_BACKEND_URL`).
 See [`desktop/README.md`](desktop/README.md) and [`backend/README.md`](backend/README.md) for details.
+
+### Run the Premiere Pro plugin
+```bash
+cd premiere-plugin
+npm install      # bundled FFmpeg for audio extraction
+```
+Then run `installer/dev-install.ps1` (Windows) or `installer/install.command`
+(macOS), start the backend, and open **Window ▸ Extensions ▸ ISTV Reel Tool** in
+Premiere. It builds editable 9:16 reel sequences directly in your project instead
+of rendering MP4s.
+
+### Ship the Premiere plugin to editors
+```bash
+cd premiere-plugin
+npm install                       # build-time only
+npm run vendor                    # fetch FFmpeg for Windows + both Macs (once)
+node tools/build.mjs --backend-url https://istv-reels-tool-plugin.onrender.com
+```
+That writes three zips to `premiere-plugin/dist/` — Windows x64, Apple Silicon,
+and Intel Mac. Send each editor the one for their machine; they unzip and
+double-click `install.bat` or `install.command`. Either OS can build for all
+three. The access token is never baked into a bundle — each editor enters it once
+in the panel. `npm test` runs the plugin suite. Full details in
+[`premiere-plugin/README.md`](premiere-plugin/README.md).
 
 ---
 
@@ -77,7 +81,7 @@ Uses the **updated_v2_test2** profile (same as `caylene_updated_v2_test2`):
 
 ## Requirements
 
-- **Python 3.9+** (the code uses `from __future__ import annotations`)
+- **Python 3.11+**
 - **Node.js** (for FFmpeg export only — no npm install needed)
 - **FFmpeg + ffprobe** on your PATH
 - **Rev.ai** API key (transcription)
@@ -163,11 +167,12 @@ reels-tool---premiere-pro-plugin/
 ├── backend/               ← FastAPI service holding the API keys
 ├── src/                   ← core Python pipeline, shared by all components
 ├── export/                ← FFmpeg render engine (Node) — CLI + desktop only
-├── desktop/               ← Electron editor (superseded by the plugin)
+├── desktop/               ← Electron editor
 ├── generate_reels.py      ← CLI entry point
 ├── export_pipeline.py     ← MP4 export orchestration
 ├── input/                 ← drop videos here (CLI)
 ├── generated_data/        ← CLI output
+├── render.yaml            ← Render blueprint for the hosted backend
 ├── requirements.txt
 └── .env.example
 ```

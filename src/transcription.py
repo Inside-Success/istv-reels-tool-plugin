@@ -1,8 +1,21 @@
 import socket
+import string
 import time
 from rev_ai import apiclient
 
 from src.cutter import normalize_word_timings
+
+# Non-lexical filled pauses only — never a real word like "like"/"so"/"well",
+# which are legitimate in normal speech and would break sentences if dropped.
+# Dropped unconditionally (not a toggle) so every consumer of the word list —
+# captions, reel selection, the transcript viewer — sees clean text without
+# needing to filter it themselves.
+_FILLER_WORDS = {"um", "umm", "uh", "uhh", "uhm", "erm", "er", "err", "hmm", "hm", "mm", "mhm", "mmhm"}
+
+
+def _is_filler(word_text: str) -> bool:
+    core = word_text.strip(string.whitespace + ".,!?;:\"'()-").lower()
+    return core in _FILLER_WORDS
 
 
 def _is_transient(exc: Exception) -> bool:
@@ -59,6 +72,9 @@ def transcribe_audio(
     client = apiclient.RevAiAPIClient(api_key)
 
     _log(progress_cb, "Uploading audio to Rev.ai (verbatim word-level)...")
+    # This is the one long-running transfer in the pipeline (a multi-MB file,
+    # not a quick status poll), so a flaky connection has a much bigger window
+    # to drop mid-upload — give it more attempts than the default.
     job = _net_retry(
         lambda: client.submit_job_local_file(
             filename=audio_path,
@@ -70,6 +86,8 @@ def transcribe_audio(
         ),
         progress_cb=progress_cb,
         what="audio upload",
+        retries=10,
+        base_delay=5,
     )
     job_id = job.id
     if on_submitted:
@@ -135,7 +153,26 @@ def _parse(raw: dict) -> dict:
                 word_index += 1
                 text_parts.append(el["value"])
             elif el.get("type") == "punct":
-                text_parts.append(el.get("value", ""))
+                punct = el.get("value", "")
+                text_parts.append(punct)
+                # Rev.ai returns punctuation as its own element, detached from
+                # the word it follows. Re-attach it to the previous word's
+                # text (e.g. "everything" + "." -> "everything.") so anything
+                # downstream that reads word text — sentence-boundary caption
+                # chunking (premiere-plugin/js/captionDoc.js), the transcript
+                # viewer — sees normal punctuated text instead of every
+                # period/comma/question mark silently vanishing.
+                if words and punct:
+                    words[-1]["word"] += punct
+
+    # Drop filler/disfluency words as a hard rule — done after punctuation
+    # merge above (not interleaved with it) so a filler's own trailing
+    # punctuation is dropped along with it, rather than left dangling on the
+    # previous real word (e.g. "Well, um, actually" -> "Well, actually", not
+    # "Well,, actually").
+    words = [w for w in words if not _is_filler(w["word"])]
+    for i, w in enumerate(words):
+        w["index"] = i
 
     words = normalize_word_timings(words)
     duration = words[-1]["end"] if words else 0.0

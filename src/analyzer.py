@@ -268,7 +268,7 @@ def analyze_with_claude(
     _log(progress_cb, f"Built {len(segments)} sentence segments from {len(words):,} words")
     mode_label = "ON (4-5 part series)" if story_mode else "OFF (all standalone)"
     _log(progress_cb, f"Story mode {mode_label}")
-    _log(progress_cb, f"Selecting {num_reels} reels with Claude ({model})...")
+    _log(progress_cb, f"Selecting {num_reels} reels...")
     selection = _call_with_retries(
         lambda: select_reels(
             segments,

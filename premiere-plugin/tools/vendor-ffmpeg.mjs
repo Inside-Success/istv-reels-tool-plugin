@@ -11,7 +11,7 @@
  * WHY THIS EXISTS. `npm install ffmpeg-static` downloads exactly one binary — for
  * the machine doing the install. The old Windows-only packaging step therefore
  * produced a zip whose "bundled FFmpeg" was a Windows .exe, and a macOS editor
- * installing it got an unrunnable path (see src/core/ffmpeg.js for why the PATH
+ * installing it got an unrunnable path (see js/ffmpeg.js for why the PATH
  * fallback didn't save them). Fetching per-target binaries here means one build
  * machine — Windows or Mac — can produce bundles for every editor.
  *

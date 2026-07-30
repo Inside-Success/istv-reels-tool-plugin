@@ -1,240 +1,237 @@
 # ISTV Reel Tool — Premiere Pro plugin (CEP)
 
-Turns a long-form interview into **editable 9:16 karaoke reels — as native Premiere
-sequences**. Same AI brain as the CLI (Rev.ai transcription + Claude reel selection,
-`v2_test2` profile), but instead of rendering MP4s with FFmpeg it **builds one 9:16
-sequence per reel inside Premiere**, so the editor refines and exports through Media
-Encoder.
+Turns a long-form interview into **editable 9:16 reels with karaoke-style
+captions — as native Premiere sequences**. The plugin is the same AI brain as
+the CLI / desktop app (Rev.ai transcription + Claude reel selection,
+`v2_test2` profile), but instead of rendering MP4s with FFmpeg it **builds one
+9:16 sequence per reel inside Premiere** so the editor refines and exports
+through Media Encoder.
 
 ```
 Active sequence clip
   → extract mono 16 kHz MP3 (bundled FFmpeg — the only thing that leaves the box)
   → backend /transcribe (Rev.ai)  → transcript
   → backend /select    (Claude)   → reels + cut sheets + marketing metadata
+  → each reel gets an editable JSON caption master (js/captionDoc.js) — review/
+     edit it in the ✏️ Captions panel before building
   → host.jsx builds, per reel: a 9:16 sequence, the cut-sheet spans placed on
-     V1/A1, a vertical reframe, and karaoke captions
+     V1/A1, a vertical reframe, and karaoke-style pop captions — imported as a
+     plain XML sequence (js/premiereXml.js) and nested on the reel, no MOGRT
+     file needed (phrase-by-phrase text, not an in-line word-highlight sweep,
+     see "Verify in Premiere" below)
   → editor tweaks in Premiere → export via Media Encoder
 ```
 
-**Ships for Windows x64, macOS Apple Silicon, and macOS Intel.** Editors install
-with one double-click and need nothing else — no Node, no Python, no FFmpeg, no
-Adobe developer tools.
+## What changed vs the desktop app
 
----
+**Removed** (Premiere now owns these): the Electron shell, proxy generation, the
+custom timeline/scrubbing/transport, the FFmpeg **render** engine
+(`export/media.cjs`, `export_cli.py`), and the custom 9:16 drag-reframe preview.
 
-## For editors: installing
+**Kept**: the FastAPI **backend** (holds the keys) and the `src/` AI pipeline,
+untouched. The caption-timing logic was ported to JS (`js/captions.js`).
 
-You get one zip for your machine. See [`installer/README-EDITORS.txt`](installer/README-EDITORS.txt).
-
-| Your machine | Zip | Install |
-|---|---|---|
-| Windows | `ISTV-Reel-Tool-win-x64.zip` | unzip → double-click **`install.bat`** |
-| Mac (Apple Silicon: M1–M4) | `ISTV-Reel-Tool-mac-arm64.zip` | unzip → double-click **`install.command`** |
-| Mac (Intel) | `ISTV-Reel-Tool-mac-x64.zip` | unzip → double-click **`install.command`** |
-
-Then restart Premiere and open **Window ▸ Extensions ▸ ISTV Reel Tool**.
-To remove: `uninstall.bat` / `uninstall.command`.
-
-Not sure which Mac you have?  Apple menu ▸ About This Mac — "Apple M…" means
-arm64, "Intel" means x64.
-
-## Using it
-
-1. Open your interview in a sequence (drag the clip onto a timeline).
-2. The panel auto-detects the V1 clip as the source. Enter the speaker name and how
-   many reels you want.
-3. **Generate reels** — watch the pipeline (Extract → Upload → Transcribe → Select).
-   Selected reels appear with their AI titles, captions, and hashtags.
-4. **Build reels** (per reel, or all) — each becomes a 9:16 sequence in an **ISTV
-   Reels** bin, with the cuts, reframe, and captions in place. The AI's
-   caption/hashtags/why-it-works are stamped on a sequence marker.
-5. Refine on the timeline and export via **File ▸ Export** / Media Encoder.
-
-**Smooth playback** builds a one-time low-res proxy so 4K scrubs without stutter;
-exports still use the full-resolution original.
-
-The **transcript is cached per source file**, so re-running the same clip skips
-Rev.ai entirely (no cost, no wait). Tick *Re-transcribe* to force a fresh run.
-
----
+**Added**: this CEP extension — an HTML/JS panel (`index.html`, `js/`) plus an
+ExtendScript host (`jsx/`) that drives Premiere's scripting DOM.
 
 ## Requirements
 
-- **Adobe Premiere Pro 2021 (15.0) or newer**, Windows x64 or macOS.
+- **Adobe Premiere Pro 2021 (15.0) or newer** on **Windows x64, macOS Apple
+  Silicon, or macOS Intel** — one bundle per platform, see *Platform support*.
 - The **backend** reachable (see [`../backend/README.md`](../backend/README.md)) —
-  hosted for the team, or run locally while testing. Its URL is baked into
-  `config.json` at build time; `ISTV_BACKEND_URL` overrides it per machine.
-- Node.js **only to build or develop**. Editors need nothing.
+  hosted for the team, or run locally while testing. The panel reads its URL
+  from `config.json` (`backendUrl`), defaulting to `http://127.0.0.1:8722`.
+- An **access token**, if the backend has `ISTV_API_TOKEN` set (any real
+  deployment should). See *Access token* below.
+- Node.js is needed **only to build/package** (to bundle FFmpeg) — editors who
+  receive the packaged zip need nothing installed.
 
-## Project layout
+## Access token
 
-```
-premiere-plugin/
-├── CSXS/manifest.xml        CEP manifest (MainPath -> src/panel/index.html)
-├── config.json              backendUrl, optional authToken, reel canvas
-├── src/
-│   ├── panel/               the CEF/browser half
-│   │   ├── index.html
-│   │   ├── panel.js         DOM wiring + pipeline orchestration (thin)
-│   │   ├── css/styles.css
-│   │   └── lib/CSInterface.js
-│   ├── core/                the Node half — all testable logic lives here
-│   │   ├── platform.js      every OS difference, in one place
-│   │   ├── ffmpeg.js        binary resolution, probe, audio extract, proxy
-│   │   ├── backend.js       /health /transcribe /select /jobs client
-│   │   ├── captions.js      karaoke timing (port of src/caption_builder.py)
-│   │   ├── reels.js         analysis -> reel model, host payload, SRT
-│   │   ├── presets.js       finds the 9:16 preset + caption MOGRT
-│   │   ├── cache.js         transcript/proxy/last-run caches
-│   │   └── config.js        settings precedence + loopback detection
-│   └── host/                the ExtendScript half (runs inside Premiere)
-│       ├── host.jsx         sequence creation, clip placement, reframe
-│       ├── captions.jsx     MOGRT karaoke / native SRT captions
-│       └── json2.js         ES5 JSON polyfill (vendored)
-├── tools/                   cross-platform build tooling (Node, no shell deps)
-│   ├── vendor-ffmpeg.mjs    fetch per-platform binaries
-│   ├── build.mjs            stage + zip the shippable bundles
-│   ├── zip.mjs              ZIP writer that preserves POSIX exec bits
-│   └── dev-install.mjs      symlink the live folder into Premiere
-├── installer/               what editors double-click
-│   ├── install.bat / install.ps1 / uninstall.bat / uninstall.ps1     (Windows)
-│   └── install.command / uninstall.command                            (macOS)
-├── test/                    node --test suite (see Testing)
-├── presets/                 optional .sqpreset + .mogrt (see presets/README.md)
-├── vendor/ffmpeg/           per-platform binaries (gitignored, fetched on demand)
-└── dist/                    built bundles (gitignored)
-```
+The hosted backend gates `/transcribe`, `/select` and `/jobs` behind a bearer
+token, because those endpoints spend Rev.ai minutes and Claude Opus tokens and
+return transcripts. The panel sends `Authorization: Bearer <token>` on every
+request (`js/backend.js`).
 
-The three-way split is the important part. `src/core/` never touches the DOM or
-Premiere, so it is unit-testable; `src/panel/` is DOM wiring only; `src/host/` is
-ES3 ExtendScript that can only run inside Premiere.
+**The token is deliberately NOT in the shipped zip.** The bundle is handed out;
+anyone who receives it could unzip it and read `config.json`. So the builder
+strips `authToken` from every bundle and `--auth-token` is rejected outright, and
+each editor enters the token once in the panel instead. It is saved to
+`~/.istv-reel-tool/config.json` — outside the extension folder, so it survives
+reinstalls and upgrades.
 
----
+Resolution order, first hit wins (`js/config.js`):
 
-## Building a release
+| Layer | Where | Holds a token? |
+|---|---|---|
+| 1 | `ISTV_BACKEND_URL` / `ISTV_BACKEND_TOKEN` env vars | yes — handy for testing |
+| 2 | `~/.istv-reel-tool/config.json` | yes — the editor's own |
+| 3 | `<extension>/config.json` (shipped) | **no** — URL only |
+| 4 | built-in default `http://127.0.0.1:8722` | no |
 
-Once per machine:
+If the backend rejects the token, the panel shows a **Backend access required**
+prompt rather than failing with a bare 401. The check uses
+`GET /jobs/<nonexistent-id>` — guarded by the same token but costing nothing, so
+verifying a token never submits a Rev.ai job or runs a Claude call.
 
+Get the token from the Render dashboard: **istv-reels-backend → Environment →
+`ISTV_API_TOKEN`**.
+
+## Sharing with editors (simple, no dev tools)
+
+**You (once per release):**
 ```bash
-cd premiere-plugin
-npm install                       # build-time only: pulls ffmpeg-static/ffprobe-static
-npm run vendor                    # fetch FFmpeg for all three targets (~420 MB)
+npm install                    # dev only — fetches the vendoring helper's deps
+npm run vendor                 # fetch FFmpeg for Windows + both Macs (~400 MB, once)
+node tools/build.mjs --backend-url https://istv-reels-tool-plugin.onrender.com
+```
+That writes **one zip per platform** to `dist/`, so an editor downloads ~40–60 MB
+instead of a combined bundle:
+
+| Bundle | For | Installer |
+|---|---|---|
+| `ISTV-Reel-Tool-win-x64.zip` | Windows x64 | `install.bat` |
+| `ISTV-Reel-Tool-mac-arm64.zip` | macOS Apple Silicon | `install.command` |
+| `ISTV-Reel-Tool-mac-x64.zip` | macOS Intel | `install.command` |
+
+Either OS can build for all three — the binaries come from `vendor/`, not from
+the build machine. `./installer/package.ps1 -BackendUrl "…"` is a Windows wrapper
+around the same script. Add `--targets win32-x64` to build just one, or
+`--universal` for a single fatter zip carrying every platform.
+
+**Each editor:**
+1. Unzip the bundle for their machine.
+2. Close Premiere, then double-click **`install.bat`** (Windows) or
+   **`install.command`** (macOS). Both enable CEP and copy the panel; neither needs
+   admin rights.
+3. Open Premiere → **Window ▸ Extensions ▸ ISTV Reel Tool**.
+4. Paste the access token when the panel asks (once per machine).
+
+No Node, npm, Python, or Adobe tools on the editor's side. To remove:
+`uninstall.bat` / `uninstall.command`. Editor-facing steps also live in
+`installer/README-EDITORS.txt`.
+
+> **Backend:** one hosted backend serves the team (Render blueprint in
+> [`../render.yaml`](../render.yaml)). Build with `--backend-url` so editors point
+> at it automatically and never touch keys or Python. The builder **refuses** to
+> produce a bundle pointing at localhost unless you pass `--allow-localhost`, since
+> such a bundle only works on the machine that built it.
+>
+> Editors still need the access token once — see **Access token** above. It is
+> never baked into the zip.
+
+## Platform support
+
+Ships for **Windows x64, macOS Apple Silicon (arm64), and macOS Intel (x64)**.
+
+FFmpeg is the only platform-specific part. Bundles carry their own binary under
+`vendor/ffmpeg/<platform>-<arch>/`, fetched by `npm run vendor`
+(`tools/vendor-ffmpeg.mjs`, which verifies each download's architecture). That is
+why one machine can build for all three: nothing is taken from the builder's own
+`node_modules`.
+
+At runtime `js/ffmpeg.js` resolves in this order, **stat-ing each candidate**:
+
+1. `vendor/ffmpeg/<platform>-<arch>/` — what editors get
+2. `ffmpeg-static` / `ffprobe-static` in `node_modules` — dev machines only
+3. `ffmpeg` / `ffprobe` on `PATH` — last resort
+
+The on-disk check in step 2 matters: `require("ffmpeg-static")` computes a path
+from `process.platform` and returns it **without touching the disk**, so an
+unchecked chain hands back a non-existent path and never falls through to `PATH`.
+`test/ffmpeg.test.js` locks that down for all three targets.
+
+macOS specifics handled in `js/main.js`: `adobeRoots()` resolves Premiere inside
+its `.app` bundle (both the version-folder and bare-`.app` layouts, plus
+`~/Applications`), and `revealInFolder()` uses `open` rather than `explorer`.
+`install.command` additionally sets the exec bit and clears Gatekeeper's
+`com.apple.quarantine` flag from the bundled binaries — both fatal to "Extract
+audio" if skipped, and a zip built on Windows cannot carry the exec bit itself.
+
+## Developing locally (you, on the repo machine)
+
+**Windows** — symlink the live folder so edits show on the next panel reload:
+```powershell
+./installer/dev-install.ps1     # sets CEP flag, npm install if needed, symlinks
 ```
 
-Then per release:
-
+**macOS** — run the installer straight out of the repo; it falls back to the
+parent folder as the payload when there is no bundle beside it:
 ```bash
-node tools/build.mjs --backend-url https://reels.your-host.com
+chmod +x installer/install.command && ./installer/install.command
 ```
 
-That produces three zips in `dist/`, one per platform (~45–52 MB each):
+Either way you need `npm run vendor` once (or an `ffmpeg` on `PATH`) so the panel
+can extract audio. Start the backend, open Premiere, then **Window ▸ Extensions ▸
+ISTV Reel Tool**.
 
-```
-dist/ISTV-Reel-Tool-win-x64.zip
-dist/ISTV-Reel-Tool-mac-arm64.zip
-dist/ISTV-Reel-Tool-mac-x64.zip
-```
-
-Useful flags:
-
-| Flag | Effect |
-|---|---|
-| `--targets darwin-arm64` | build just one platform |
-| `--universal` | one zip containing all platforms (~140 MB) instead of three |
-| `--auth-token <t>` | bake a bearer token into `config.json` |
-| `--allow-localhost` | permit a loopback `backendUrl` (testing bundles only) |
-
-**Either OS can build for both.** The vendoring script fetches binaries for every
-target regardless of the machine it runs on, and `tools/zip.mjs` writes the archive
-itself so the executable bits survive even when a Mac bundle is built on Windows.
-
-**The build refuses to ship a loopback backend URL** unless you pass
-`--allow-localhost`. A bundle pointing at `127.0.0.1` works only on the machine that
-built it: every editor would install it, see "Backend not reachable", and have no way
-to fix it short of editing JSON inside the installed panel.
-
-`config.json` in the repo is never modified — the URL is baked into the staged copy.
-
-### Developing locally
-
-```bash
-node tools/dev-install.mjs            # symlink the live folder into Premiere's CEP dir
-node tools/dev-install.mjs --status   # what's installed, which FFmpeg, which templates
-node tools/dev-install.mjs --uninstall
-```
-
-Edits then show up on the next panel reload. `.debug` opens a remote-debug port —
-with the panel loaded, open `http://localhost:8088` in Chrome for its console,
-network, and DOM. `.debug` is excluded from release bundles.
-
-### Optional template files
-
+### Optional preset file (recommended for exact framing)
 See [`presets/README.md`](presets/README.md) to create, once, the vertical
-`.sqpreset` and the karaoke `captions.mogrt`. Without them the plugin still works —
-it auto-detects Premiere's built-in 9:16 preset and caption templates, and warns in
-the panel if it finds neither. If present they are bundled automatically.
+`.sqpreset`. Without it the plugin still works (project-default raster +
+warning). Captions need **no** preset/template file — they're built as a
+plain XML sequence import (js/premiereXml.js), not a MOGRT. If the
+`.sqpreset` is present, it's included automatically when you `package.ps1`.
 
----
+## Use
 
-## Testing
+1. Open your interview in a sequence (drag the clip onto a timeline).
+2. In the panel: it auto-detects the V1 clip as the source. Enter the speaker
+   name, pick how many reels and a caption style.
+3. **Generate reels** — watch the pipeline (Extract → Upload → Transcribe →
+   Select). Selected reels appear with their AI titles, captions, hashtags.
+4. **Build in Premiere** (per reel, or **Build all**) — each reel becomes a
+   9:16 sequence in an **ISTV Reels** bin, with the cuts, reframe, and captions.
+   The AI's caption/hashtags/why-it-works are stamped as a sequence marker.
+5. Refine on Premiere's timeline and export via **File ▸ Export** / Media Encoder.
 
-```bash
-npm test
-```
+Config: backend URL via `ISTV_BACKEND_URL` (defaults to `http://127.0.0.1:8722`).
 
-119 tests, no network and no Premiere required. What they cover:
+## Debugging
+`.debug` opens a remote-debug port — with the panel loaded, open
+`http://localhost:8088` in Chrome for the panel's console/network/DOM.
 
-| Area | What is verified |
-|---|---|
-| `captions.test.js` | reel-timeline mapping across spans, block ordering/overlap, chunking, speaker breaks, cut-seam boundaries |
-| `reels.test.js` | cut-sheet sorting/filtering, duration sums, host payload, SubRip output, transcript formatting |
-| `platform.test.js` | Windows *and* macOS paths, both driven with a fake filesystem so each OS's branches are exercised from either machine |
-| `presets.test.js` | preset/MOGRT discovery inside the macOS `.app` bundle and under Program Files |
-| `ffmpeg.test.js` | binary resolution order, probe parsing (23.976/25/29.97), argument vectors |
-| `config.test.js` | settings precedence, loopback detection |
-| `cache.test.js` | fingerprint stability and invalidation |
-| `host-extendscript.test.js` | `src/host/*.jsx` parses and uses no syntax or library call ExtendScript lacks |
-| `build.test.js` | the loopback release guard, and ZIP permission bits at the byte level |
-| `integration.test.js` | runs the **real bundled FFmpeg**: codecs present, mono 16 kHz MP3 actually produced, proxy raster/duration, error messages |
+## Verify in Premiere (honest status)
 
-The integration tests skip cleanly if `npm run vendor` hasn't run yet.
+The AI half (audio export, backend calls, caption timing, reel normalization) is
+straight ports of the proven desktop code and runs as-is. The **ExtendScript
+host** (`jsx/host.jsx`, `jsx/captions.jsx`) drives Premiere's scripting API,
+which has drifted across versions — these steps should be validated on your
+Premiere build and may need small tweaks:
 
-### What tests cannot cover
-
-`src/host/*.jsx` drives Premiere's scripting DOM, which has drifted across versions.
-The suite proves it parses and stays inside ExtendScript's language subset, but these
-steps still need eyes on a real Premiere build:
-
-- **Sequence creation** — a bundled/auto-detected `.sqpreset` via QE, else
-  `createNewSequence`. Confirm the reel raster is 1080×1920.
-- **Clip placement** — `insertClip` with per-span in/out, falling back to
+- **Sequence creation** — uses a bundled `.sqpreset` via QE when present, else
+  `createNewSequence` with the project default (+ warning). Confirm the reel
+  raster is 1080×1920.
+- **Clip placement** — `insertClip` with per-span in/out; falls back to
   `overwriteClip`. Confirm multi-span reels concatenate correctly.
-- **Reframe** — sets Motion Scale/Position; property shapes vary by version.
-- **Karaoke captions** — `importMGT` per block; confirm the text field name matches
-  your `captions.mogrt` (the setter matches `/text|caption/i`).
-- **Marker metadata** — cosmetic if it fails.
+- **Reframe** — sets Motion **Scale**/**Position**; property names/shape can
+  vary. Confirm the vertical framing fills the frame.
+- **Karaoke-style pop captions** — the primary path (`jsx/captions.jsx`
+  `applyGraphicsXml`) builds a plain Final Cut Pro 7 XML sequence
+  (`js/premiereXml.js`) whose clips use Premiere's own built-in
+  **"GraphicAndType"** filter — the same thing the classic Titler produces —
+  with the text+style baked into its "Source Text" parameter (a base64 blob;
+  the exact byte layout is ported from a real exported Premiere XML via the
+  open-source [JorianWoltjer/AutoCaptions](https://github.com/JorianWoltjer/AutoCaptions)
+  tool, not independently re-derived from Adobe docs — confirm it renders on
+  your build). `app.project.importFiles()` brings it in as a new sequence;
+  that sequence is then nested as one clip on a fresh top video track of the
+  reel. No MOGRT file, no `importMGT`, no runtime guessing which component
+  property holds "the text". A `mogrtPath`/legacy MOGRT path
+  (`applyKaraoke`) still exists in `captions.jsx` and is used only if the
+  panel doesn't supply `xmlText`.
+  This is still phrase-by-phrase text swapping, **not** an in-line
+  word-highlight sweep — Premiere's ExtendScript API has no way to recolor a
+  sub-range of a single text parameter, and no scriptable caption-track API
+  at all (confirmed against Adobe's own docs/community threads), so true
+  karaoke and a live pull-back of an existing caption track are both out of
+  reach for this plugin. The Captions panel's live preview shows a word
+  sweep for judging template look/timing only — it says as much under the
+  preview stage, since the built sequence won't look like that.
+- **Pull captions back from Premiere** — best-effort only, for the reason
+  above; expect an "unsupported" message rather than a live read of an
+  existing caption track. Re-import the last exported `.srt` instead (✏️
+  Captions → Import SRT).
+- **Marker metadata** — `markers.createMarker`; cosmetic if it fails.
 
 Each host call returns `{ ok, data | error }` and collects non-fatal `warnings`,
-surfaced in the panel, so failures are visible rather than silent. Build results are
-also written to `istv-reel-tool-lastbuild.json` in the temp dir for support.
-
----
-
-## Cross-platform notes
-
-Everything OS-specific is in `src/core/platform.js` and the two installer pairs.
-The specifics, for anyone maintaining this:
-
-| Concern | Windows | macOS |
-|---|---|---|
-| Enable unsigned extensions | `HKCU\Software\Adobe\CSXS.{9-12}\PlayerDebugMode` | `defaults write com.adobe.CSXS.{9-12} PlayerDebugMode` + `killall cfprefsd` |
-| CEP extensions folder | `%APPDATA%\Adobe\CEP\extensions` | `~/Library/Application Support/Adobe/CEP/extensions` |
-| Premiere resources | `C:\Program Files\Adobe\<version>\` | `/Applications/<version>/<version>.app/Contents/` — **inside the bundle** |
-| Reveal a folder | `explorer` | `open` |
-| FFmpeg binary | `vendor/ffmpeg/win32-x64/ffmpeg.exe` | `vendor/ffmpeg/darwin-{arm64,x64}/ffmpeg` |
-| Post-install fixups | none | `chmod +x` the binaries, `xattr -dr com.apple.quarantine` |
-
-Three of these were previously wrong or missing and each produced a distinct
-macOS-only failure — a plugin that couldn't be installed at all, silently 16:9 reels
-with no karaoke captions, an unrunnable FFmpeg path, and an uncaught exception after
-saving SRTs. They are covered by tests that run on either OS.
+surfaced in the panel, so failures are visible rather than silent.

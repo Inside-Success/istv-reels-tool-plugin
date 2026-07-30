@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "defaultTemplateId": "clean-bold",
+  "templates": [
+    {
+      "id": "clean-bold",
+      "name": "Clean Bold",
+      "description": "The current reel look — bold, high-contrast, dark outline, no box.",
+      "font": { "family": "Segoe UI Black", "size": 90, "weight": "black", "case": "none", "letterSpacing": 0, "lineHeight": 1.15 },
+      "maxLines": 2,
+      "maxChars": 42,
+      "fill": { "color": "#FFFFFF" },
+      "stroke": { "width": 4, "color": "#000000" },
+      "shadow": { "enabled": true, "color": "#000000", "opacity": 0.6, "blur": 8, "offsetY": 2 },
+      "box": { "enabled": false, "color": "#000000", "opacity": 0.5, "cornerRadius": 8, "padding": 12 },
+      "position": { "area": "lower-third", "xPct": 50, "yPct": 86, "align": "center" },
+      "karaoke": { "inactiveColor": "#FFFFFF", "activeColor": "#E6B450", "activeScale": 1.06, "activeWeight": "black", "highlightMode": "color-swap", "transitionMs": 80, "chunkSize": 3 }
+    },
+    {
+      "id": "boxed",
+      "name": "Boxed",
+      "description": "Solid background box behind the text — high legibility over busy footage.",
+      "font": { "family": "Segoe UI Black", "size": 85, "weight": "black", "case": "none", "letterSpacing": 0, "lineHeight": 1.2 },
+      "maxLines": 2,
+      "maxChars": 40,
+      "fill": { "color": "#FFFFFF" },
+      "stroke": { "width": 0, "color": "#000000" },
+      "shadow": { "enabled": false, "color": "#000000", "opacity": 0, "blur": 0, "offsetY": 0 },
+      "box": { "enabled": true, "color": "#000000", "opacity": 0.72, "cornerRadius": 14, "padding": 20 },
+      "position": { "area": "lower-third", "xPct": 50, "yPct": 84, "align": "center" },
+      "karaoke": { "inactiveColor": "#DDDDDD", "activeColor": "#E6B450", "activeScale": 1.0, "activeWeight": "black", "highlightMode": "box", "transitionMs": 100, "chunkSize": 2 }
+    },
+    {
+      "id": "soft-shadow",
+      "name": "Soft Shadow",
+      "description": "Lighter stroke, a soft glow instead of a hard outline — gentler on close-up faces.",
+      "font": { "family": "Segoe UI Semibold", "size": 85, "weight": "semibold", "case": "none", "letterSpacing": 0, "lineHeight": 1.15 },
+      "maxLines": 2,
+      "maxChars": 44,
+      "fill": { "color": "#FFFFFF" },
+      "stroke": { "width": 1.5, "color": "#1A1A1A" },
+      "shadow": { "enabled": true, "color": "#000000", "opacity": 0.45, "blur": 16, "offsetY": 0 },
+      "box": { "enabled": false, "color": "#000000", "opacity": 0, "cornerRadius": 0, "padding": 0 },
+      "position": { "area": "lower-third", "xPct": 50, "yPct": 87, "align": "center" },
+      "karaoke": { "inactiveColor": "#F2F2F2", "activeColor": "#FFD166", "activeScale": 1.04, "activeWeight": "semibold", "highlightMode": "color-swap", "transitionMs": 120, "chunkSize": 3 }
+    },
+    {
+      "id": "minimal-white",
+      "name": "Minimal White",
+      "description": "Plain white text, minimal shadow, no stroke — for already-high-contrast footage.",
+      "font": { "family": "Segoe UI", "size": 75, "weight": "regular", "case": "none", "letterSpacing": 0, "lineHeight": 1.2 },
+      "maxLines": 2,
+      "maxChars": 46,
+      "fill": { "color": "#FFFFFF" },
+      "stroke": { "width": 0, "color": "#000000" },
+      "shadow": { "enabled": true, "color": "#000000", "opacity": 0.35, "blur": 6, "offsetY": 1 },
+      "box": { "enabled": false, "color": "#000000", "opacity": 0, "cornerRadius": 0, "padding": 0 },
+      "position": { "area": "lower-third", "xPct": 50, "yPct": 88, "align": "center" },
+      "karaoke": { "inactiveColor": "#CCCCCC", "activeColor": "#FFFFFF", "activeScale": 1.0, "activeWeight": "semibold", "highlightMode": "color-swap", "transitionMs": 80, "chunkSize": 4 }
+    }
+  ]
+}

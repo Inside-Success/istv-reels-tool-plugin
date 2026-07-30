@@ -1,19 +1,16 @@
 {
   "name": "istv-reel-tool-premiere",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
-  "description": "ISTV Reel Tool — Premiere Pro CEP extension. Turns a long-form interview into editable 9:16 karaoke reel sequences inside Premiere. Ships for Windows x64 and macOS (Apple Silicon + Intel).",
+  "description": "ISTV Reel Tool — Premiere Pro CEP extension. Turns a long-form interview into editable 9:16 reel sequences with karaoke-style captions inside Premiere. Ships for Windows x64 and macOS (Apple Silicon + Intel).",
   "license": "UNLICENSED",
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.js\"",
+    "test": "node test/captionDoc.test.js && node test/premiereXml.test.js && node --test test/ffmpeg.test.js",
     "vendor": "node tools/vendor-ffmpeg.mjs",
-    "build": "node tools/build.mjs",
-    "dev": "node tools/dev-install.mjs",
-    "dev:status": "node tools/dev-install.mjs --status",
-    "dev:uninstall": "node tools/dev-install.mjs --uninstall"
+    "build": "node tools/build.mjs"
   },
   "devDependencies": {
     "ffmpeg-static": "^5.2.0",

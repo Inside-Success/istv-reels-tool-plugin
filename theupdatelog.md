@@ -6,6 +6,145 @@ each session instead of editing old ones.
 
 ---
 
+## 2026-07-30 — v1.2.0: cross-platform release (Windows + both Macs)
+
+Audited the merged tree before releasing. Four real defects found and fixed, all
+of them macOS or packaging:
+
+- **`adobeRoots()` was silently broken on macOS.** It built
+  `/Applications/Adobe Premiere Pro 2025/Contents` — a path that cannot exist,
+  because Adobe's layout is a version *folder* containing the `.app`. This
+  reproduced exactly the bug the (deleted) `src/core/platform.js` had fixed and
+  documented: every Mac found no 9:16 sequence preset, so editors silently got
+  reels at the project's raster — **16:9 instead of 1080×1920**, with only a
+  warning. Now handles the version-folder layout, a bare `.app` in
+  `/Applications`, and `~/Applications`. 8 simulated-layout tests.
+- **Uncaught crash on non-Windows.** `spawn("explorer", …)` in "Save all SRTs"
+  and "Save transcript". The surrounding `try/catch` caught nothing: a missing
+  binary arrives as an async `'error'` event, and with no listener that is an
+  uncaught exception (verified empirically). Replaced with `revealInFolder()` —
+  `open`/`explorer`/`xdg-open` plus a real error listener.
+- **`js/ffmpeg.js` accepted unverified binary paths.** `require("ffmpeg-static")`
+  computes a path from `process.platform` and returns it *without touching the
+  disk*, so a bundle installed on the wrong platform resolved to a non-existent
+  binary and — because `require()` didn't throw — never fell through to `PATH`.
+  Restored the vendor-first chain (`vendor/ffmpeg/<platform>-<arch>` →
+  `node_modules` → `PATH`) with a `statSync` on every candidate.
+- **Bundle was 3× larger than necessary.** `ffprobe-static` ships all six
+  platform builds; five were dead weight in every download.
+
+**Restored from git history** to make three-platform shipping real:
+`installer/install.command` + `uninstall.command`, `tools/build.mjs`,
+`tools/zip.mjs` (stores POSIX permissions, so a Windows-built Mac bundle still
+arrives executable), and `tools/vendor-ffmpeg.mjs`. `build.mjs` was adapted to the
+flat `js/`+`jsx/`+`css/` layout, and its `--auth-token` flag now **throws** rather
+than baking a token into a distributed bundle.
+
+`installer/package.ps1` was rewritten as a thin wrapper around `build.mjs`. It had
+become a second, divergent builder — node_modules instead of `vendor/`,
+Windows-only output — so a release could be cut either way and get different
+contents. Dropped `tools/dev-install.mjs` (it depended on the deleted
+`platform.js`); Windows dev install uses `installer/dev-install.ps1`, macOS uses
+`install.command`'s repo fallback.
+
+Versions unified at **1.2.0** across `package.json` and both `CSXS/manifest.xml`
+fields — deliberately past the previously shipped 1.1.0, so editors already on
+1.1.0 see an upgrade rather than an apparent downgrade.
+
+**Verified against the live service** (`https://istv-reels-tool-plugin.onrender.com`):
+`/health` reports `job_store: postgres, durable: true` — the Postgres store kept
+from the 07-25 work is what production is actually running on. The real token is
+accepted (404 on the free `/jobs` probe), a wrong token is refused (401). Bundles
+checked at the zip level: exec bit `0755` on every binary and `.command`, LF line
+endings on the `.command` files (CRLF would fail with `bad interpreter: /bin/bash^M`),
+manifest 1.2.0 inside each, and no `authToken` in any `config.json`.
+
+73 checks pass: 19 captionDoc, 15 premiereXml, 18 ffmpeg, 13 desktop model,
+8 platform-layout, plus the full backend suite.
+
+| Bundle | Zipped | Installed |
+|---|---|---|
+| `ISTV-Reel-Tool-win-x64.zip` | 60.7 MB | 165.7 MB |
+| `ISTV-Reel-Tool-mac-arm64.zip` | 40.3 MB | 91.3 MB |
+| `ISTV-Reel-Tool-mac-x64.zip` | 51.5 MB | 157.9 MB |
+
+---
+
+## 2026-07-30 — Merged the newer plugin branch without losing the deployment work
+
+Brought in a separately-developed copy of the repo (dropped in as a nested
+`reels-tool---premiere-pro-plugin/` folder). It turned out **not** to be strictly
+newer: it had branched *before* the 2026-07-25 deployment commits, so a wholesale
+overwrite would have silently reverted them.
+
+**Taken from the new copy** (genuinely newer work):
+- `src/transcription.py` — drops non-lexical filler words (`um`/`uh`/`hmm`, never
+  real words like "like"/"so"), re-attaches Rev.ai's detached punctuation elements
+  to the preceding word, and raises the audio-upload retry budget to 10 attempts
+  with a 5s base delay (it's the one long transfer in the pipeline).
+- `src/analyzer.py` — "Claude" removed from user-facing progress text.
+- `premiere-plugin/` — restructured from `src/{core,host,panel}/` to flat
+  `js/`, `jsx/`, `css/`, `index.html`. New: a 3-step wizard UI, a caption editor
+  with per-word timing (`js/captionDoc.js`, `js/captionPanel.js`), data-driven
+  caption style templates (`presets/caption-templates.json`), and **FCP7 XML
+  caption import** (`js/premiereXml.js`) replacing the MOGRT path — no `.mogrt`
+  to author, no `importMGT()`, no runtime property-guessing.
+
+**Kept from this repo** (the new copy would have reverted all of it):
+- `backend/app.py` — the `ISTV_API_TOKEN` bearer guard on `/transcribe`,
+  `/select`, `/jobs`, the constant-time compare, and the startup-handler job
+  resume (the new copy resumed at *module import*, so two workers each re-billed
+  every in-flight Claude selection).
+- `backend/job_store.py` — the Postgres backend and `ISTV_JOBS_DB` support. The
+  new copy hardcoded a path next to the file, which would make `render.yaml`'s
+  `ISTV_DATABASE_URL` and `/data` mount do nothing.
+- `backend/requirements.txt` / `requirements.txt` — the full transitive set and
+  the `-r backend/requirements.txt` line that stops the default PaaS build
+  command producing a backend with no uvicorn.
+- `render.yaml`, `backend/Dockerfile`, `.dockerignore`, `docs/`, `.env.example` —
+  absent from the new copy, so untouched.
+
+**Ported forward** (the new plugin had no auth at all, so it would have 401'd
+against the deployed backend):
+- `js/config.js` — four-layer resolution (env → `~/.istv-reel-tool/config.json` →
+  bundled `config.json` → default), read at call time so a freshly saved token
+  works without reloading the panel. The shipped bundle still carries the URL and
+  never a token.
+- `js/backend.js` — `Authorization: Bearer` on every request, plus
+  `verifyToken()`, which probes `GET /jobs/<nonexistent-id>`: guarded by the same
+  token but free, so checking a token never submits a Rev.ai job or runs Claude.
+- `index.html` / `css/styles.css` / `js/main.js` — a **Backend access required**
+  card that appears only when the backend actually rejects us, including
+  mid-run (a rotated token now prompts instead of failing with a bare 401).
+- `installer/package.ps1` — strips `authToken` from the *staged* config (a local
+  testing token can no longer leak into a distributed zip), excludes `vendor/`
+  from the bundle (~400 MB the panel no longer reads — FFmpeg comes from
+  `node_modules` via `ffmpeg-static`), and warns when about to ship a bundle
+  still pointing at localhost.
+
+**Also fixed:** the new copy's `.gitignore` had dropped the `vendor/` rule, which
+left 396 MB of FFmpeg binaries staged for the next `git add -A`. Restored.
+
+**Deliberately not deleted:** `premiere-plugin/vendor/` (396 MB) and
+`premiere-plugin/dist/` (542 MB) are gitignored and untracked, so removing them
+would be unrecoverable. They are now stale — `dist/` holds bundles of the old
+plugin structure — but harmless.
+
+**Dropped in the restructure** (recoverable via git history): the macOS
+installers (`install.command`/`uninstall.command`), the Node build/vendor tooling
+(`tools/*.mjs`), and 10 of the 12 plugin test files — `platform.js`, `cache.js`
+and `presets.js` no longer exist to test. Plugin coverage is now 34 tests across
+`captionDoc` and `premiereXml`.
+
+**Verified:** 34 plugin tests, 13 desktop model tests and the full backend check
+suite pass. Auth confirmed end-to-end against a live local backend with
+`ISTV_API_TOKEN` set: `/health` open, no token → 401, wrong token → 401, correct
+token → 404 (authorised), and a guarded `/select` call reaching application
+validation rather than the auth guard. Token persistence tested against a
+redirected home directory, including env-over-user precedence.
+
+---
+
 ## 2026-07-01 — Fixed: "Select reel moments" failing on Claude 529 Overloaded
 
 **Symptom:** Generate Reels failed at the "Select reel moments (Claude)" step

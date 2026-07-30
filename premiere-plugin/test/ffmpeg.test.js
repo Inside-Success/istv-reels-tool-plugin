@@ -14,7 +14,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
-const ffmpeg = require(path.join(__dirname, "..", "src", "core", "ffmpeg.js"));
+const ffmpeg = require(path.join(__dirname, "..", "js", "ffmpeg.js"));
 
 const MAC = { platform: "darwin", arch: "arm64", extRoot: "/ext" };
 const MAC_INTEL = { platform: "darwin", arch: "x64", extRoot: "/ext" };

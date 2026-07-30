@@ -4,10 +4,15 @@
 # file, then prompts for the two values marked `sync: false`. Those keys are set by
 # you, in the dashboard — they are never committed and never leave your browser.
 #
-# After the first deploy, read the generated ISTV_API_TOKEN from
+# After the first deploy, build the plugin against the deployed URL:
+#   cd premiere-plugin
+#   node tools/build.mjs --backend-url https://<service>.onrender.com
+#
+# Then read the generated ISTV_API_TOKEN from
 #   Dashboard -> istv-reels-backend -> Environment
-# and pass it to the plugin build:
-#   node tools/build.mjs --backend-url https://<service>.onrender.com --auth-token <token>
+# and hand it to each editor separately. It is NOT baked into the bundle: that zip
+# is distributed, so a token inside it would be published. Each editor pastes it
+# into the panel once (saved to ~/.istv-reel-tool/config.json).
 #
 # PLAN CHOICE MATTERS HERE, for two reasons:
 #   • A persistent disk requires a paid instance type. On the free tier there is no
