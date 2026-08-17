@@ -157,6 +157,7 @@ function escapeXml(s) {
 // than the 1080px frame and getting clipped on both edges.
 const AVG_CHAR_WIDTH_RATIO = 0.65;
 const SAFE_WIDTH_FRACTION = 0.82; // ~9% margin on each side
+const FRAME_EPSILON = 1e-6;
 
 /** Shrink fontSize (never grow it) just enough that `text` is unlikely to
  *  overflow `canvasWidth` at the given size, using the rough ratio above.
@@ -169,6 +170,61 @@ function fitFontSizeToWidth(text, requestedSize, canvasWidth) {
   const safeWidth = canvasWidth * SAFE_WIDTH_FRACTION;
   const maxSizeForWidth = safeWidth / (len * AVG_CHAR_WIDTH_RATIO);
   return Math.max(24, Math.min(requestedSize, Math.floor(maxSizeForWidth)));
+}
+
+/** Fit once across a reel's caption set so captions do not visibly jump size
+ *  from phrase to phrase. */
+function fitFontSizeForTexts(texts, requestedSize, canvasWidth) {
+  return (Array.isArray(texts) ? texts : []).reduce(
+    (size, text) => Math.min(size, fitFontSizeToWidth(text, requestedSize, canvasWidth)),
+    requestedSize
+  );
+}
+
+function startFrameForSeconds(seconds, fps) {
+  return Math.max(0, Math.floor(num(seconds) * fps + FRAME_EPSILON));
+}
+
+function endFrameForSeconds(seconds, fps) {
+  return Math.max(0, Math.ceil(num(seconds) * fps - FRAME_EPSILON));
+}
+
+function rateForFps(fps) {
+  const f = num(fps, 30);
+  if (Math.abs(f - 23.976) < 0.05) return { timebase: 24, ntsc: true };
+  if (Math.abs(f - 29.97) < 0.05) return { timebase: 30, ntsc: true };
+  if (Math.abs(f - 59.94) < 0.05) return { timebase: 60, ntsc: true };
+  return { timebase: Math.max(1, Math.round(f)), ntsc: false };
+}
+
+function cueLineItems(doc) {
+  return (Array.isArray(doc && doc.cues) ? doc.cues : []).map((cue) => ({
+    text: cue.text,
+    startSec: cue.start,
+    endSec: cue.end,
+    kind: "line",
+  }));
+}
+
+function karaokeItemsFromCaptionDoc(doc, opts = {}) {
+  const items = [];
+  (Array.isArray(doc && doc.cues) ? doc.cues : []).forEach((cue) => {
+    if (!Array.isArray(cue.words) || !cue.words.length) {
+      items.push({ text: cue.text, startSec: cue.start, endSec: cue.end, kind: "line" });
+      return;
+    }
+    captionDoc
+      .docToCaptionBlocks({ ...doc, cues: [cue] }, { chunkSize: opts.chunkSize })
+      .forEach((b) =>
+        items.push({
+          text: b.text,
+          startSec: b.start_time_seconds,
+          endSec: b.end_time_seconds,
+          kind: "karaoke",
+        })
+      );
+  });
+  return items;
 }
 
 /**
@@ -184,6 +240,7 @@ function clipsFromCaptionDoc(doc, template, opts = {}) {
   const canvasWidth = num(opts.width, 1080);
   const t = template || {};
   const fill = hexToColorFloat(t.fill && t.fill.color);
+  const karaokeFill = hexToColorFloat((t.karaoke && t.karaoke.activeColor) || (t.fill && t.fill.color));
   const stroke = t.stroke || {};
   const strokeColorFloat = hexToColorFloat(stroke.color);
   const strokeWidth = num(stroke.width, 0);
@@ -194,25 +251,29 @@ function clipsFromCaptionDoc(doc, template, opts = {}) {
   const yFrac = num(t.position && t.position.yPct, 85) / 100;
   const positionValue = `0,${xFrac}:${yFrac},0,0,0,0,0,0,0,0,0,0,0,0`;
 
-  const items =
-    mode === "native"
-      ? (doc.cues || []).map((cue) => ({ text: cue.text, startSec: cue.start, endSec: cue.end }))
-      : captionDoc.docToCaptionBlocks(doc, { chunkSize: opts.chunkSize }).map((b) => ({ text: b.text, startSec: b.start_time_seconds, endSec: b.end_time_seconds }));
+  const items = mode === "native" ? cueLineItems(doc) : karaokeItemsFromCaptionDoc(doc, { chunkSize: opts.chunkSize });
+
+  const fittedFontSize = fitFontSizeForTexts(
+    items.map((it) => it.text),
+    requestedFontSize,
+    canvasWidth
+  );
+  let prevEndFrame = 0;
 
   return items
     .filter((it) => it.text && it.text.trim())
     .map((it) => {
-      const startFrame = Math.max(0, Math.round(it.startSec * fps));
-      const endFrame = Math.max(startFrame + 1, Math.round(it.endSec * fps));
-      const fontSize = fitFontSizeToWidth(it.text, requestedFontSize, canvasWidth);
+      const startFrame = Math.max(prevEndFrame, startFrameForSeconds(it.startSec, fps));
+      const endFrame = Math.max(startFrame + 1, endFrameForSeconds(it.endSec, fps));
+      prevEndFrame = endFrame;
       return {
         name: it.text.slice(0, 40),
         startFrame,
         endFrame,
         sourceTextValue: buildSourceTextValue(it.text, {
-          fillColorFloat: fill,
+          fillColorFloat: it.kind === "karaoke" ? karaokeFill : fill,
           fontName: fontFamily,
-          fontSize,
+          fontSize: fittedFontSize,
           strokeColorFloat,
           strokeWidth,
           strokeVisible: strokeWidth > 0,
@@ -226,6 +287,7 @@ function clipsFromCaptionDoc(doc, template, opts = {}) {
 /** Build the full xmeml (FCP7) XML text for a sequence of caption clips. */
 function buildCaptionSequenceXml(clips, opts = {}) {
   const fps = num(opts.fps, 30);
+  const rate = rateForFps(fps);
   const width = num(opts.width, 1080);
   const height = num(opts.height, 1920);
   const sequenceName = escapeXml(opts.sequenceName || "Captions");
@@ -239,8 +301,8 @@ function buildCaptionSequenceXml(clips, opts = {}) {
                         <name>Graphic</name>
                         <enabled>true</enabled>
                         <rate>
-                            <timebase>${fps}</timebase>
-                            <ntsc>false</ntsc>
+                            <timebase>${rate.timebase}</timebase>
+                            <ntsc>${rate.ntsc ? "true" : "false"}</ntsc>
                         </rate>
                         <start>${c.startFrame}</start>
                         <end>${c.endFrame}</end>
@@ -292,8 +354,8 @@ function buildCaptionSequenceXml(clips, opts = {}) {
     <sequence>
         <duration>${duration}</duration>
         <rate>
-            <timebase>${fps}</timebase>
-            <ntsc>false</ntsc>
+            <timebase>${rate.timebase}</timebase>
+            <ntsc>${rate.ntsc ? "true" : "false"}</ntsc>
         </rate>
         <name>${sequenceName}</name>
         <media>
@@ -301,8 +363,8 @@ function buildCaptionSequenceXml(clips, opts = {}) {
                 <format>
                     <samplecharacteristics>
                         <rate>
-                            <timebase>${fps}</timebase>
-                            <ntsc>false</ntsc>
+                            <timebase>${rate.timebase}</timebase>
+                            <ntsc>${rate.ntsc ? "true" : "false"}</ntsc>
                         </rate>
                         <width>${width}</width>
                         <height>${height}</height>
@@ -327,6 +389,8 @@ module.exports = {
   buildSourceTextValue,
   decodeSourceTextValue,
   fitFontSizeToWidth,
+  fitFontSizeForTexts,
+  rateForFps,
   clipsFromCaptionDoc,
   buildCaptionSequenceXml,
 };

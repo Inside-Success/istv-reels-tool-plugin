@@ -176,6 +176,21 @@ test("chunks each cue's words into karaoke MOGRT blocks of the given size", () =
   assert.strictEqual(blocks[0].end_time_seconds, 0.5);
 });
 
+test("defaults to four-word karaoke blocks", () => {
+  const doc = D.newDoc();
+  doc.cues = D.docFromWords(words(
+    ["one", 0, 0.1],
+    ["two", 0.1, 0.2],
+    ["three", 0.2, 0.3],
+    ["four", 0.3, 0.4],
+    ["five", 0.4, 0.5]
+  ));
+  const blocks = D.docToCaptionBlocks(doc);
+  assert.strictEqual(blocks.length, 2);
+  assert.strictEqual(blocks[0].text, "one two three four");
+  assert.strictEqual(blocks[1].text, "five");
+});
+
 test("produces no blocks for word-less (SRT-imported) cues — karaoke stays unavailable", () => {
   const doc = D.newDoc();
   doc.cues = [{ id: "c1", start: 0, end: 1, text: "hello world" }];

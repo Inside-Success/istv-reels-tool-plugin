@@ -20,6 +20,7 @@
  */
 
 const captions = require("./captions");
+const DEFAULT_CAPTION_CHUNK_SIZE = 4;
 
 function num(v, d = 0) {
   const n = Number(v);
@@ -346,7 +347,7 @@ function wrapLines(text, maxChars, maxLines) {
  * blocks — karaoke is simply unavailable for them, never faked.
  */
 function docToCaptionBlocks(doc, opts = {}) {
-  const chunkSize = Math.max(1, num(opts.chunkSize, 3));
+  const chunkSize = Math.max(1, num(opts.chunkSize, DEFAULT_CAPTION_CHUNK_SIZE));
   const blocks = [];
   (Array.isArray(doc && doc.cues) ? doc.cues : []).forEach((cue) => {
     if (!Array.isArray(cue.words) || !cue.words.length) return;
@@ -393,6 +394,7 @@ module.exports = {
   shiftAll,
   srtToDoc,
   docToCaptionBlocks,
+  DEFAULT_CAPTION_CHUNK_SIZE,
   docToSrt,
   srtStamp,
   parseSrtTime,

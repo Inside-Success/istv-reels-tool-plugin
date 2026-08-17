@@ -10,7 +10,7 @@ from typing import Any
 MIN_BLOCK_GAP_SEC = 0.03
 MIN_WORD_DISPLAY_SEC = 0.04
 MIN_BLOCK_DURATION_SEC = 0.25
-DEFAULT_KARAOKE_CHUNK_SIZE = 2
+DEFAULT_KARAOKE_CHUNK_SIZE = 4
 
 # Min fuzzy ratio for a transcript token to be treated as a (mis-spelled) name.
 NAME_MATCH_THRESHOLD = 0.72

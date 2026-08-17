@@ -16,6 +16,7 @@ function test(name, fn) {
 const TEMPLATE = {
   font: { family: "Segoe UI Black", size: 135, weight: "black" },
   fill: { color: "#FFFFFF" },
+  karaoke: { activeColor: "#E6B450" },
   stroke: { width: 4, color: "#000000" },
   shadow: { enabled: true },
   position: { xPct: 50, yPct: 86 },
@@ -63,10 +64,20 @@ test("never grows text beyond the template's requested size", () => {
   assert.strictEqual(P.fitFontSizeToWidth("a", 90, 4000), 90);
 });
 
+test("fits one stable size across all caption clips in a reel", () => {
+  const size = P.fitFontSizeForTexts(["hi", "patience just received everything"], 90, 1080);
+  assert.strictEqual(size, P.fitFontSizeToWidth("patience just received everything", 90, 1080));
+});
+
 function decodedFontSize(sourceTextValue) {
   const buf = Buffer.from(sourceTextValue, "base64");
   const data = JSON.parse(buf.slice(8).toString("utf16le"));
   return data.mTextParam.mStyleSheet.mFontSize.mParamValues[0][1];
+}
+
+function decodedStyle(sourceTextValue) {
+  const buf = Buffer.from(sourceTextValue, "base64");
+  return JSON.parse(buf.slice(8).toString("utf16le")).mTextParam.mStyleSheet;
 }
 
 test("clipsFromCaptionDoc passes canvas width through so long chunks actually shrink", () => {
@@ -80,6 +91,22 @@ test("clipsFromCaptionDoc passes canvas width through so long chunks actually sh
   assert.strictEqual(clips.length, 1);
   const size = decodedFontSize(clips[0].sourceTextValue);
   assert.ok(size < TEMPLATE.font.size, `expected the 3-word chunk to shrink below ${TEMPLATE.font.size}, got ${size}`);
+});
+
+test("clipsFromCaptionDoc uses one fitted font size for every clip", () => {
+  const doc = D.newDoc();
+  doc.cues = D.docFromWords([
+    { text: "hi", start: 0, end: 0.2 },
+    { text: "there", start: 0.2, end: 0.5 },
+    { text: "patience", start: 0.5, end: 0.8 },
+    { text: "received", start: 0.8, end: 1.2 },
+    { text: "everything", start: 1.2, end: 1.6 },
+    { text: "today", start: 1.6, end: 1.9 },
+  ]);
+  const clips = P.clipsFromCaptionDoc(doc, TEMPLATE, { mode: "karaoke", chunkSize: 4, fps: 30, width: 1080 });
+  assert.strictEqual(clips.length, 2);
+  const sizes = clips.map((clip) => decodedFontSize(clip.sourceTextValue));
+  assert.deepStrictEqual(new Set(sizes).size, 1);
 });
 
 console.log("premiereXml: clipsFromCaptionDoc");
@@ -109,11 +136,45 @@ test("karaoke mode produces chunked clips from docToCaptionBlocks", () => {
   assert.strictEqual(P.decodeSourceTextValue(clips[0].sourceTextValue), expectedBlocks[0].text);
 });
 
+test("karaoke mode can produce one editable graphic clip per timed word", () => {
+  const doc = sampleDoc();
+  const clips = P.clipsFromCaptionDoc(doc, TEMPLATE, { mode: "karaoke", chunkSize: 1, fps: 30 });
+  assert.strictEqual(clips.length, 4);
+  assert.deepStrictEqual(
+    clips.map((c) => P.decodeSourceTextValue(c.sourceTextValue)),
+    ["we", "almost", "lost", "everything."]
+  );
+  clips.forEach((c) => assert.ok(c.endFrame > c.startFrame));
+});
+
+test("karaoke word clips use the template active color", () => {
+  const doc = sampleDoc();
+  const [clip] = P.clipsFromCaptionDoc(doc, TEMPLATE, { mode: "karaoke", chunkSize: 1, fps: 30 });
+  const style = decodedStyle(clip.sourceTextValue);
+  assert.strictEqual(style.mFillColor.mParamValues[0][1], P.hexToColorFloat(TEMPLATE.karaoke.activeColor));
+});
+
+test("karaoke mode falls back to editable full-line graphics when word timing is missing", () => {
+  const doc = D.newDoc();
+  doc.cues = [{ id: "c1", start: 0, end: 1, text: "hello world" }];
+  const clips = P.clipsFromCaptionDoc(doc, TEMPLATE, { mode: "karaoke", chunkSize: 1, fps: 30 });
+  assert.strictEqual(clips.length, 1);
+  assert.strictEqual(P.decodeSourceTextValue(clips[0].sourceTextValue), "hello world");
+  const style = decodedStyle(clips[0].sourceTextValue);
+  assert.strictEqual(style.mFillColor.mParamValues[0][1], P.hexToColorFloat(TEMPLATE.fill.color));
+});
+
 test("frame numbers follow start/end seconds * fps, end always after start", () => {
   const doc = sampleDoc();
   const clips = P.clipsFromCaptionDoc(doc, TEMPLATE, { mode: "native", fps: 30 });
-  assert.strictEqual(clips[0].startFrame, Math.round(doc.cues[0].start * 30));
+  assert.strictEqual(clips[0].startFrame, Math.floor(doc.cues[0].start * 30));
   clips.forEach((c) => assert.ok(c.endFrame > c.startFrame));
+});
+
+test("NTSC frame rates use valid FCP XML rate tags", () => {
+  assert.deepStrictEqual(P.rateForFps(29.97), { timebase: 30, ntsc: true });
+  assert.deepStrictEqual(P.rateForFps(23.976), { timebase: 24, ntsc: true });
+  assert.deepStrictEqual(P.rateForFps(25), { timebase: 25, ntsc: false });
 });
 
 test("empty-text cues are skipped", () => {
@@ -134,6 +195,15 @@ test("wraps every clip in a <clipitem> using the native GraphicAndType effect", 
   assert.strictEqual(clipItemCount, clips.length);
   const effectIdCount = (xml.match(/<effectid>GraphicAndType<\/effectid>/g) || []).length;
   assert.strictEqual(effectIdCount, clips.length);
+});
+
+test("writes NTSC rate metadata instead of decimal timebase values", () => {
+  const doc = sampleDoc();
+  const clips = P.clipsFromCaptionDoc(doc, TEMPLATE, { mode: "karaoke", chunkSize: 2, fps: 29.97 });
+  const xml = P.buildCaptionSequenceXml(clips, { fps: 29.97 });
+  assert.ok(xml.indexOf("<timebase>30</timebase>") !== -1);
+  assert.ok(xml.indexOf("<ntsc>true</ntsc>") !== -1);
+  assert.strictEqual(xml.indexOf("<timebase>29.97</timebase>"), -1);
 });
 
 test("sequence duration matches the last clip's end frame", () => {

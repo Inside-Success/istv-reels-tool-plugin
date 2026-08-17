@@ -41,7 +41,8 @@ const { DEFAULT_CANVAS } = config;
 
 // Fallback words-per-MOGRT-pop when a template doesn't specify karaoke.chunkSize
 // (see buildCaptionBlocksForTemplate — chunk size is otherwise template-driven).
-const CAPTION_CHUNK_SIZE = 3;
+const CAPTION_CHUNK_SIZE = 4;
+const PREMIERE_EDITABLE_KARAOKE_CHUNK_SIZE = 1;
 
 /** Karaoke-style MOGRT chunk size for a template — see §5/§7b: this is words
  *  per pop-in, not a per-word color sweep (Premiere/ExtendScript can't do that). */
@@ -86,7 +87,7 @@ function buildXmlForReel(reel, fps) {
   const template = captionTemplates.getTemplate(doc.templateId);
   const clips = premiereXml.clipsFromCaptionDoc(doc, template, {
     mode: "karaoke",
-    chunkSize: chunkSizeForTemplate(doc.templateId),
+    chunkSize: PREMIERE_EDITABLE_KARAOKE_CHUNK_SIZE,
     fps,
     width: DEFAULT_CANVAS.width,
   });
@@ -1013,7 +1014,7 @@ async function buildReels(reels) {
   });
   const okReels = (res.data.built || []).filter((b) => b && b.ok).length;
   const warns = res.data.warnings || [];
-  const captionNote = "Karaoke-style pop captions are placed on the sequence (phrase-by-phrase, not a word-highlight sweep).";
+  const captionNote = "Karaoke captions are placed as editable Premiere text graphics.";
   toast(`Built ${okReels} reel sequence(s). ${captionNote}` + (warns[0] ? " " + warns[0] : ""), "ok");
 }
 
