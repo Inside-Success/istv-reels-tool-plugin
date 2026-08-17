@@ -51,6 +51,10 @@ Premiere. It builds editable 9:16 reel sequences directly in your project instea
 of rendering MP4s.
 
 ### Ship the Premiere plugin to editors
+
+Latest release downloads:
+[`v1.2.2`](https://github.com/Inside-Success/istv-reels-tool-plugin/releases/tag/v1.2.2)
+
 ```bash
 cd premiere-plugin
 npm install                       # build-time only
@@ -59,9 +63,11 @@ node tools/build.mjs --backend-url https://istv-reels-tool-plugin.onrender.com
 ```
 That writes three zips to `premiere-plugin/dist/` — Windows x64, Apple Silicon,
 and Intel Mac. Send each editor the one for their machine; they unzip and
-double-click `install.bat` or `install.command`. Either OS can build for all
-three. The access token is never baked into a bundle — each editor enters it once
-in the panel. `npm test` runs the plugin suite. Full details in
+double-click `install.bat` or `install.command` for a first install. If they
+already have the plugin, they close Premiere and run `update.bat` or
+`update.command` from the new zip. Either OS can build for all three. The access
+token is never baked into a bundle and is stored outside the extension folder, so
+it survives reinstalls and updates. `npm test` runs the plugin suite. Full details in
 [`premiere-plugin/README.md`](premiere-plugin/README.md).
 
 ---
