@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Build the shareable ISTV Reel Tool package. Runs on Windows or macOS — the whole
+ * Build the shareable ISTV Reel Tool update package. Runs on Windows or macOS — the whole
  * point of replacing the old PowerShell packaging step, which could only run on
  * Windows and could only produce a Windows-only bundle.
  *
@@ -12,9 +12,9 @@
  * By default it emits ONE ZIP PER PLATFORM, so an editor downloads ~70 MB instead
  * of ~200 MB:
  *
- *   dist/ISTV-Reel-Tool-win-x64.zip      → install.bat
- *   dist/ISTV-Reel-Tool-mac-arm64.zip    → install.command   (Apple Silicon)
- *   dist/ISTV-Reel-Tool-mac-x64.zip      → install.command   (Intel)
+ *   dist/ISTV-Reel-Tool-win-x64.zip      → install.bat / update.bat
+ *   dist/ISTV-Reel-Tool-mac-arm64.zip    → install.command / update.command   (Apple Silicon)
+ *   dist/ISTV-Reel-Tool-mac-x64.zip      → install.command / update.command   (Intel)
  *
  * `--universal` instead emits a single dist/ISTV-Reel-Tool-universal.zip carrying
  * every platform's binaries — one link to hand out, at ~3x the size.
@@ -99,7 +99,7 @@ const { isLoopbackUrl } = await import(`file://${join(EXT_ROOT, "js", "config.js
   });
 
 /**
- * The release-safety check. A bundle whose backendUrl is loopback works only on the
+ * The distribution-safety check. A bundle whose backendUrl is loopback works only on the
  * machine that built it: every editor who installs it sees "Backend not reachable"
  * and has no way to fix it short of editing JSON inside the installed extension.
  * Shipping that is always a mistake, so it takes an explicit flag.
@@ -115,6 +115,42 @@ function resolveBackendUrl({ backendUrl, allowLocalhost }, currentConfig) {
     );
   }
   return url;
+}
+
+function gitOutput(args) {
+  const result = spawnSync("git", args, {
+    cwd: EXT_ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (result.status !== 0) return "";
+  return String(result.stdout || "").trim();
+}
+
+function safeStampPart(value) {
+  return String(value || "").replace(/[^A-Za-z0-9._-]/g, "-");
+}
+
+function timestampStamp(date = new Date()) {
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function currentBuildInfo(date = new Date()) {
+  const commit = gitOutput(["rev-parse", "--short=12", "HEAD"]);
+  const changedFiles = gitOutput(["status", "--porcelain", "--", "."]);
+  const dirty = !!changedFiles;
+  const builtAt = date.toISOString();
+  const stamp = timestampStamp(date);
+  const buildId = commit
+    ? dirty ? `${safeStampPart(commit)}-local-${stamp}` : safeStampPart(commit)
+    : `local-${stamp}`;
+
+  return {
+    buildId,
+    builtAt,
+    sourceCommit: commit || "unknown",
+    sourceState: dirty ? "local changes included" : "clean",
+  };
 }
 
 /** Recursive copy honouring EXCLUDE_NAMES at every level. */
@@ -139,7 +175,7 @@ function dirSize(dir) {
 }
 
 /** Stage one bundle: extension payload + vendored binaries + installers + guide. */
-function stageBundle({ label, targets, backendUrl, currentConfig, version }) {
+function stageBundle({ label, targets, backendUrl, currentConfig, version, buildInfo }) {
   const stage = join(DIST, `ISTV-Reel-Tool-${label}`);
   const extDir = join(stage, EXT_ID);
   rmSync(stage, { recursive: true, force: true });
@@ -173,8 +209,8 @@ function stageBundle({ label, targets, backendUrl, currentConfig, version }) {
   const wantsWin = targets.some((t) => t.startsWith("win32"));
   const wantsMac = targets.some((t) => t.startsWith("darwin"));
   const installerFiles = [
-    ...(wantsWin ? ["install.bat", "install.ps1", "uninstall.bat", "uninstall.ps1"] : []),
-    ...(wantsMac ? ["install.command", "uninstall.command"] : []),
+    ...(wantsWin ? ["install.bat", "install.ps1", "update.bat", "uninstall.bat", "uninstall.ps1"] : []),
+    ...(wantsMac ? ["install.command", "update.command", "uninstall.command"] : []),
     "README-EDITORS.txt",
   ];
   for (const f of installerFiles) {
@@ -194,7 +230,7 @@ function stageBundle({ label, targets, backendUrl, currentConfig, version }) {
   }
   // Best-effort exec bit; install.command re-chmods itself anyway (see header).
   if (wantsMac && process.platform !== "win32") {
-    for (const f of ["install.command", "uninstall.command"]) {
+    for (const f of ["install.command", "update.command", "uninstall.command"]) {
       try {
         spawnSync("chmod", ["+x", join(stage, f)]);
       } catch {
@@ -208,16 +244,20 @@ function stageBundle({ label, targets, backendUrl, currentConfig, version }) {
     join(stage, "BUILD-INFO.txt"),
     [
       `ISTV Reel Tool`,
-      // Version first: it's the one line support needs to know which build an
-      // editor is actually running. Sourced from package.json, which the release
-      // bumps alongside CSXS/manifest.xml.
-      `version:     ${version}`,
-      `bundle:      ${label}`,
-      `targets:     ${targets.join(", ")}`,
-      `backendUrl:  ${backendUrl}`,
-      `built on:    ${process.platform}-${process.arch}, node ${process.version}`,
+      // Version is the Premiere/CEP compatibility line. Build ID is the per-change
+      // update identifier, so a package can be rebuilt for every code change
+      // without forcing a package.json/manifest version bump.
+      `version:       ${version}`,
+      `build/update:  ${buildInfo.buildId}`,
+      `source commit: ${buildInfo.sourceCommit}`,
+      `source state:  ${buildInfo.sourceState}`,
+      `bundle:        ${label}`,
+      `targets:       ${targets.join(", ")}`,
+      `backendUrl:    ${backendUrl}`,
+      `built at:      ${buildInfo.builtAt}`,
+      `built on:      ${process.platform}-${process.arch}, node ${process.version}`,
       ``,
-      `Install: Windows -> double-click install.bat | macOS -> double-click install.command`,
+      `Install/update: Windows -> double-click install.bat/update.bat | macOS -> double-click install.command/update.command`,
       `Then in Premiere: Window > Extensions > ISTV Reel Tool`,
     ].join("\n") + "\n",
     "utf8"
@@ -232,6 +272,7 @@ async function main() {
   const currentConfig = existsSync(configPath) ? JSON.parse(readFileSync(configPath, "utf8")) : {};
   const backendUrl = resolveBackendUrl(args, currentConfig);
   const version = JSON.parse(readFileSync(join(EXT_ROOT, "package.json"), "utf8")).version || "0.0.0";
+  const buildInfo = currentBuildInfo();
 
   // Vendored binaries must exist for every requested target before we stage.
   const status = vendorStatus(args.targets);
@@ -244,9 +285,10 @@ async function main() {
   }
 
   mkdirSync(DIST, { recursive: true });
-  console.log(`Building ISTV Reel Tool v${version}`);
+  console.log(`Building ISTV Reel Tool v${version} update ${buildInfo.buildId}`);
   console.log(`  backend: ${backendUrl}${isLoopbackUrl(backendUrl) ? "   (LOCAL — testing bundle, do not distribute)" : ""}`);
   console.log(`  targets: ${args.targets.join(", ")}${args.universal ? " (universal bundle)" : ""}`);
+  console.log(`  source:  ${buildInfo.sourceCommit} (${buildInfo.sourceState})`);
   console.log("");
 
   const bundles = args.universal
@@ -255,7 +297,7 @@ async function main() {
 
   const built = [];
   for (const b of bundles) {
-    const { stage } = stageBundle({ ...b, backendUrl, currentConfig, version });
+    const { stage } = stageBundle({ ...b, backendUrl, currentConfig, version, buildInfo });
     const zip = join(DIST, `ISTV-Reel-Tool-${b.label}.zip`);
     rmSync(zip, { force: true });
     const { entries } = await zipDirectory(stage, zip);
@@ -268,10 +310,10 @@ async function main() {
   console.log(`\nBundles in ${DIST}:`);
   for (const b of built) console.log(`  ${b.zip}`);
   console.log(`\nSend each editor the zip for their machine. They unzip and double-click`);
-  console.log(`install.bat (Windows) or install.command (macOS). Nothing else to install.`);
+  console.log(`install/update.bat (Windows) or install/update.command (macOS). Nothing else to install.`);
 }
 
-export { parseArgs, resolveBackendUrl, BUNDLE_LABEL, INCLUDE, EXCLUDE_NAMES };
+export { parseArgs, resolveBackendUrl, currentBuildInfo, BUNDLE_LABEL, INCLUDE, EXCLUDE_NAMES };
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
   main().catch((e) => {

@@ -4,9 +4,9 @@ ISTV Reel Tool - Premiere Pro panel
 You need: Adobe Premiere Pro 2021 (15.0) or newer, and the access token
 from your admin. Nothing else - FFmpeg is already bundled.
 
-Your zip contains the installer for YOUR platform only. If you see
-install.bat, follow the Windows steps. If you see install.command, follow
-the macOS steps.
+Your zip contains the installer/updater for YOUR platform only. If you see
+install.bat/update.bat, follow the Windows steps. If you see
+install.command/update.command, follow the macOS steps.
 
 
 INSTALL - WINDOWS (64-bit)
@@ -25,6 +25,18 @@ INSTALL - WINDOWS (64-bit)
 
   Installs to: %APPDATA%\Adobe\CEP\extensions\com.istv.reeltool
   No admin rights needed.
+
+
+UPDATE - WINDOWS (64-bit)
+-------------------------
+
+  1. Close Premiere Pro.
+  2. Unzip the new download.
+  3. Double-click  update.bat
+     - If you only see install.bat, that is fine too - it also updates.
+  4. Open Premiere Pro again.
+
+  Your saved access token stays on this machine.
 
 
 INSTALL - MAC, APPLE SILICON (M1/M2/M3/M4)
@@ -48,6 +60,18 @@ INSTALL - MAC, APPLE SILICON (M1/M2/M3/M4)
 
   Installs to: ~/Library/Application Support/Adobe/CEP/extensions/com.istv.reeltool
   No admin rights needed.
+
+
+UPDATE - MAC
+------------
+
+  1. Close Premiere Pro.
+  2. Unzip the new download for your Mac type.
+  3. Double-click  update.command
+     - If you only see install.command, that is fine too - it also updates.
+  4. Open Premiere Pro again.
+
+  Your saved access token stays on this machine.
 
 
 INSTALL - MAC, INTEL

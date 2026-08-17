@@ -2,7 +2,7 @@
 #
 # ISTV Reel Tool — editor installer (macOS, Apple Silicon and Intel).
 #
-# Double-click this file in Finder. It:
+# Double-click install.command or update.command in Finder. It:
 #   1. enables unsigned CEP extensions (defaults write com.adobe.CSXS.N)
 #   2. copies the panel into ~/Library/Application Support/Adobe/CEP/extensions
 #   3. makes the bundled ffmpeg/ffprobe executable and clears Gatekeeper's
@@ -18,8 +18,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEST_ROOT="$HOME/Library/Application Support/Adobe/CEP/extensions"
 DEST="$DEST_ROOT/$EXT_ID"
 
-printf '\n  Installing ISTV Reel Tool for Premiere Pro\n'
-printf '  -------------------------------------------\n'
+printf '\n  Installing/updating ISTV Reel Tool for Premiere Pro\n'
+printf '  ----------------------------------------------------\n'
 
 # --- 0) Locate the extension payload -----------------------------------------
 # In a release bundle the payload sits next to this script. The dev fallback is

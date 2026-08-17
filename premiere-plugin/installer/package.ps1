@@ -1,11 +1,11 @@
 <#
-  ISTV Reel Tool - build the shareable packages (for YOU, once per release).
+  ISTV Reel Tool - build the shareable update packages.
 
   This is a thin wrapper around tools/build.mjs, which is the single source of
   truth for packaging. It used to be a second, divergent implementation: it
   bundled node_modules instead of vendor/, produced only a Windows bundle, and
-  could only run on Windows. Keeping two builders meant a release could be cut
-  either way and get different contents, so this now just forwards.
+  could only run on Windows. Keeping two builders meant packages could be built
+  two different ways and get different contents, so this now just forwards.
 
   Usage:
     ./installer/package.ps1 -BackendUrl "https://istv-reels-tool-plugin.onrender.com"
@@ -13,9 +13,9 @@
     ./installer/package.ps1 -AllowLocalhost          # dev/test bundle only
 
   Output (one zip per platform, in dist/):
-    ISTV-Reel-Tool-win-x64.zip     -> install.bat
-    ISTV-Reel-Tool-mac-arm64.zip   -> install.command  (Apple Silicon)
-    ISTV-Reel-Tool-mac-x64.zip     -> install.command  (Intel)
+    ISTV-Reel-Tool-win-x64.zip     -> install.bat / update.bat
+    ISTV-Reel-Tool-mac-arm64.zip   -> install.command / update.command  (Apple Silicon)
+    ISTV-Reel-Tool-mac-x64.zip     -> install.command / update.command  (Intel)
 
   The access token is NEVER baked in - editors enter it once in the panel. See
   README.md (Access token).

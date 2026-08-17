@@ -77,33 +77,46 @@ verifying a token never submits a Rev.ai job or runs a Claude call.
 Get the token from the Render dashboard: **istv-reels-backend → Environment →
 `ISTV_API_TOKEN`**.
 
-## Sharing with editors (simple, no dev tools)
+## Sharing plugin updates with editors (simple, no dev tools)
 
-**You (once per release):**
+**You (after any plugin change you want editors to get):**
 ```bash
 npm install                    # dev only — fetches the vendoring helper's deps
 npm run vendor                 # fetch FFmpeg for Windows + both Macs (~400 MB, once)
 node tools/build.mjs --backend-url https://istv-reels-tool-plugin.onrender.com
 ```
-That writes **one zip per platform** to `dist/`, so an editor downloads ~40–60 MB
-instead of a combined bundle:
+That writes/overwrites **one update zip per platform** in `dist/`, so an editor
+downloads ~40–60 MB instead of a combined bundle:
 
-| Bundle | For | Installer |
+| Bundle | For | Installer / updater |
 |---|---|---|
-| `ISTV-Reel-Tool-win-x64.zip` | Windows x64 | `install.bat` |
-| `ISTV-Reel-Tool-mac-arm64.zip` | macOS Apple Silicon | `install.command` |
-| `ISTV-Reel-Tool-mac-x64.zip` | macOS Intel | `install.command` |
+| `ISTV-Reel-Tool-win-x64.zip` | Windows x64 | `install.bat` / `update.bat` |
+| `ISTV-Reel-Tool-mac-arm64.zip` | macOS Apple Silicon | `install.command` / `update.command` |
+| `ISTV-Reel-Tool-mac-x64.zip` | macOS Intel | `install.command` / `update.command` |
 
 Either OS can build for all three — the binaries come from `vendor/`, not from
 the build machine. `./installer/package.ps1 -BackendUrl "…"` is a Windows wrapper
 around the same script. Add `--targets win32-x64` to build just one, or
 `--universal` for a single fatter zip carrying every platform.
 
+These update zips do **not** require bumping `package.json` or
+`CSXS/manifest.xml` for every change. The extension version stays as the
+Premiere/CEP compatibility version, while each package gets a per-change
+`build/update` id in `BUILD-INFO.txt`:
+
+- clean committed builds use the git commit id
+- local uncommitted builds use the commit id plus a timestamped `local` suffix
+
+Bump the extension version only when you intentionally want a new compatibility
+or support milestone; otherwise rebuild and send the updated zip for the
+editor's machine.
+
 **Each editor:**
 1. Unzip the bundle for their machine.
 2. Close Premiere, then double-click **`install.bat`** (Windows) or
-   **`install.command`** (macOS). Both enable CEP and copy the panel; neither needs
-   admin rights.
+   **`install.command`** (macOS). For later updates, double-click
+   **`update.bat`** or **`update.command`** from the new zip. Both paths enable
+   CEP and copy the panel; neither needs admin rights.
 3. Open Premiere → **Window ▸ Extensions ▸ ISTV Reel Tool**.
 4. Paste the access token when the panel asks (once per machine).
 

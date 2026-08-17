@@ -1,7 +1,7 @@
 <#
   ISTV Reel Tool — editor installer (Windows).
 
-  Double-click install.bat (which runs this) to install the Premiere panel:
+  Double-click install.bat or update.bat (which runs this) to install/update the Premiere panel:
     1. Enables CEP extensions (PlayerDebugMode) for the CEP versions Premiere
        2021–2025 use.
     2. Copies the bundled extension into Premiere's CEP extensions folder.
@@ -13,8 +13,8 @@ $ErrorActionPreference = "Stop"
 $ExtId = "com.istv.reeltool"
 
 Write-Host ""
-Write-Host "  Installing ISTV Reel Tool for Premiere Pro" -ForegroundColor Cyan
-Write-Host "  -------------------------------------------"
+Write-Host "  Installing/updating ISTV Reel Tool for Premiere Pro" -ForegroundColor Cyan
+Write-Host "  ----------------------------------------------------"
 
 # 1) Enable unsigned CEP extensions for all relevant CSXS versions.
 foreach ($v in 9, 10, 11, 12) {
