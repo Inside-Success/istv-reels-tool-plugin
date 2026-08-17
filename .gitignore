@@ -24,3 +24,6 @@ input/*
 
 # Local durable job registry (backend/job_store.py)
 backend/jobs.db
+
+# Unrelated local tooling config (Codex/hypercorn) — not part of this project
+/config/
