@@ -43,6 +43,16 @@ function authHeaders(extra) {
   return headers;
 }
 
+/** True only for a transcript that can be sent to the reel-selection endpoint. */
+function hasTranscriptWords(transcript) {
+  return !!(
+    transcript &&
+    typeof transcript === "object" &&
+    Array.isArray(transcript.words) &&
+    transcript.words.length
+  );
+}
+
 function getJSON(urlStr, { timeoutMs = 15000 } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(urlStr);
@@ -223,6 +233,11 @@ async function transcribe(audioPath, { onUpload, onStatus } = {}) {
 
 /** POST /select then poll → resolves with the analysis (reels + metadata). */
 async function selectReels(transcript, name, numReels, { onStatus } = {}) {
+  if (!hasTranscriptWords(transcript)) {
+    throw new Error(
+      "Transcription returned no spoken words. Confirm the selected source contains audible speech for its full duration, then tick Re-transcribe and try again."
+    );
+  }
   const { job_id } = await postJSON("/select", { transcript, name, num_reels: numReels });
   const final = await pollJob(job_id, { onStatus });
   return final.analysis;
@@ -231,6 +246,7 @@ async function selectReels(transcript, name, numReels, { onStatus } = {}) {
 module.exports = {
   health,
   verifyToken,
+  hasTranscriptWords,
   uploadAudio,
   transcribe,
   pollJob,

@@ -115,9 +115,11 @@ ISTV = (function () {
 
   /**
    * The interview to transcribe is the master footage the editor has on their
-   * timeline. We read the first video clip of the active sequence and return its
-   * source media path (the panel ffprobes it for fps/size/duration). If there is
-   * no active sequence, ask the editor to open the interview in one.
+   * timeline. Prefer a clip the editor explicitly selected; otherwise use the
+   * longest video clip in the active sequence. Picking the first clip used to
+   * select short silent intros/B-roll in edited timelines, producing a valid but
+   * speechless one-minute upload and then a misleading "Missing transcript.words"
+   * error at reel selection.
    */
   function getActiveSource() {
     try {
@@ -125,9 +127,9 @@ ISTV = (function () {
       if (!seq) {
         return err("No active sequence. Open your interview in a sequence (or drag the clip to a new sequence), then try again.");
       }
-      var clip = firstVideoClip(seq);
+      var clip = selectedMediaClip(seq) || longestVideoClip(seq);
       if (!clip) {
-        return err("The active sequence has no video clip on V1. Add your interview footage to the timeline first.");
+        return err("The active sequence has no video clip. Add your interview footage to the timeline first.");
       }
       var item = clip.projectItem;
       var mediaPath = "";
@@ -147,12 +149,69 @@ ISTV = (function () {
     }
   }
 
-  function firstVideoClip(seq) {
+  function clipDurationSeconds(clip) {
+    try {
+      return clip && clip.duration ? Number(clip.duration.seconds) || 0 : 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  /** A selected timeline item with real source media is an explicit user choice. */
+  function selectedMediaClip(seq) {
+    try {
+      if (typeof seq.getSelection !== "function") return null;
+      var selected = seq.getSelection();
+      var best = null;
+      var bestDuration = -1;
+      for (var i = 0; i < selected.length; i++) {
+        var candidate = selected[i];
+        if (!candidate || !candidate.projectItem) continue;
+        // Avoid choosing a separately recorded audio item when the user has a
+        // mixed selection. Older Premiere versions may omit mediaType, so only
+        // reject it when the property explicitly says Audio.
+        var mediaType = "";
+        try {
+          mediaType = String(candidate.mediaType || "").toLowerCase();
+        } catch (e) {
+          mediaType = "";
+        }
+        if (mediaType === "audio") continue;
+        var mediaPath = "";
+        try {
+          mediaPath = candidate.projectItem.getMediaPath();
+        } catch (e) {
+          mediaPath = "";
+        }
+        if (!mediaPath) continue;
+        var duration = clipDurationSeconds(candidate);
+        if (!best || duration > bestDuration) {
+          best = candidate;
+          bestDuration = duration;
+        }
+      }
+      return best;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /** Best automatic guess: the interview is normally the longest V-track item. */
+  function longestVideoClip(seq) {
+    var best = null;
+    var bestDuration = -1;
     for (var t = 0; t < seq.videoTracks.numTracks; t++) {
       var track = seq.videoTracks[t];
-      if (track.clips.numItems > 0) return track.clips[0];
+      for (var i = 0; i < track.clips.numItems; i++) {
+        var candidate = track.clips[i];
+        var duration = clipDurationSeconds(candidate);
+        if (!best || duration > bestDuration) {
+          best = candidate;
+          bestDuration = duration;
+        }
+      }
     }
-    return null;
+    return best;
   }
 
   // ── public: build reels as 9:16 sequences ───────────────────────────────────

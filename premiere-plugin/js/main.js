@@ -315,7 +315,7 @@ function transcriptCachePath(fp) {
 function loadTranscriptCache(fp) {
   try {
     const t = JSON.parse(fs.readFileSync(transcriptCachePath(fp), "utf8"));
-    return t && Array.isArray(t.words) && t.words.length ? t : null;
+    return backend.hasTranscriptWords(t) ? t : null;
   } catch (e) {
     return null;
   }
@@ -771,6 +771,11 @@ async function generate() {
         },
       });
       transcript = tScript.transcript;
+      if (!backend.hasTranscriptWords(transcript)) {
+        throw new Error(
+          "Transcription returned no spoken words. Confirm Premiere selected the full source clip (not a short/silent proxy), then tick Re-transcribe and try again."
+        );
+      }
       stepState("transcribe", "done");
       try {
         fs.unlinkSync(audio.path);

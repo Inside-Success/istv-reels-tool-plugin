@@ -124,7 +124,14 @@ def poll_transcription_job(job_id: str, api_key: str, progress_cb=None) -> dict:
 
     _log(progress_cb, "Transcription complete — fetching word-level data...")
     raw = _net_retry(client.get_transcript_json, job_id, progress_cb=progress_cb, what="transcript fetch")
-    return _parse(raw)
+    transcript = _parse(raw)
+    if not transcript.get("words"):
+        raise RuntimeError(
+            "Rev.ai completed the job but detected no spoken words. "
+            "Confirm the selected source contains audible speech for its full duration, "
+            "then re-transcribe."
+        )
+    return transcript
 
 
 def _parse(raw: dict) -> dict:

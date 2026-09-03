@@ -8,7 +8,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node test/captionDoc.test.js && node test/premiereXml.test.js && node --test test/ffmpeg.test.js",
+    "test": "node test/captionDoc.test.js && node test/premiereXml.test.js && node --test test/ffmpeg.test.js test/backend.test.js",
     "vendor": "node tools/vendor-ffmpeg.mjs",
     "build": "node tools/build.mjs"
   },

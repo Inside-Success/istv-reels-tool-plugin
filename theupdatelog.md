@@ -6,6 +6,20 @@ each session instead of editing old ones.
 
 ---
 
+## 2026-09-03 — Fix empty-transcript 400 from wrong Premiere source
+
+- Traced `{"detail":"Missing transcript.words"}` to completed Rev.ai jobs with
+  zero words. The failed uploads were only 483,114 bytes (about one minute at
+  64 kbps), while the intended 22:12 MP4 produces a 10,660,017-byte audio file.
+  Premiere had selected a short silent intro/B-roll item rather than the interview.
+- Source detection now prefers an explicitly selected video timeline clip and,
+  when nothing is selected, falls back to the longest video clip instead of the
+  first clip in the sequence.
+- Empty Rev.ai results are now errors at the Transcribe step. They are neither
+  cached nor sent to `/select`, so editors see a useful re-transcription/source
+  instruction instead of a misleading backend 400.
+- Added client-side transcript validation tests. The full plugin suite passes.
+
 ## 2026-07-30 — v1.2.0: cross-platform release (Windows + both Macs)
 
 Audited the merged tree before releasing. Four real defects found and fixed, all
