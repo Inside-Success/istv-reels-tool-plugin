@@ -6,7 +6,7 @@ each session instead of editing old ones.
 
 ---
 
-## 2026-09-03 — Fix empty-transcript 400 from wrong Premiere source
+## 2026-09-03 — v1.2.3: fix empty-transcript 400 from wrong Premiere source
 
 - Traced `{"detail":"Missing transcript.words"}` to completed Rev.ai jobs with
   zero words. The failed uploads were only 483,114 bytes (about one minute at

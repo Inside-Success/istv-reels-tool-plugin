@@ -53,7 +53,7 @@ of rendering MP4s.
 ### Ship the Premiere plugin to editors
 
 Latest release downloads:
-[`v1.2.2`](https://github.com/Inside-Success/istv-reels-tool-plugin/releases/tag/v1.2.2)
+[`v1.2.3`](https://github.com/Inside-Success/istv-reels-tool-plugin/releases/tag/v1.2.3)
 
 ```bash
 cd premiere-plugin
