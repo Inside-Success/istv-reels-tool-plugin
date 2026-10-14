@@ -277,23 +277,6 @@ ISTV = (function () {
     }
   }
 
-  // Large caption XML does not belong inside a CEP evalScript expression.
-  // Read the payload locally and return the same build result as buildReels.
-  function buildReelsFromFile(argJson) {
-    try {
-      var args = JSON.parse(argJson);
-      var file = new File(args.path);
-      if (!file.exists) return err("Build payload file is missing: " + args.path);
-      file.encoding = "UTF-8";
-      if (!file.open("r")) return err("Could not open build payload: " + args.path);
-      var payload = file.read();
-      file.close();
-      return buildReels(payload);
-    } catch (e) {
-      return err("Could not read build payload", e.toString());
-    }
-  }
-
   function ensureBin(name) {
     var root = app.project.rootItem;
     for (var i = 0; i < root.children.numItems; i++) {
@@ -702,7 +685,6 @@ ISTV = (function () {
     ping: ping,
     getActiveSource: getActiveSource,
     buildReels: buildReels,
-    buildReelsFromFile: buildReelsFromFile,
     attachProxy: attachProxy,
     pullCaptions: pullCaptions,
     getSourceFrameRate: getSourceFrameRate,
