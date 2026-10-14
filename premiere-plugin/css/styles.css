@@ -18,27 +18,28 @@
   --radius-sm: 6px;
 }
 
-html, body { height: 100%; }
+html, body { width: 100%; height: 100%; min-width: 0; }
 body {
   background: var(--bg);
   color: var(--text);
   font: 12.5px/1.55 "Segoe UI", -apple-system, Roboto, sans-serif;
+  overflow-x: hidden;
   overflow-y: auto;
   -webkit-font-smoothing: antialiased;
 }
-#app { padding: 14px 14px 28px; display: flex; flex-direction: column; gap: 12px; max-width: 1100px; margin: 0 auto; }
+#app { width: 100%; min-width: 0; padding: clamp(10px, 3vw, 14px) clamp(10px, 3vw, 14px) 28px; display: flex; flex-direction: column; gap: 12px; max-width: 1100px; margin: 0 auto; }
 
 /* ── top bar ─────────────────────────────────────────────────────────────── */
-.topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 .brand { font-weight: 700; letter-spacing: .2px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
 .brand .logo { width: 12px; height: 12px; border-radius: 3px; background: var(--white); display: inline-block; }
-.top-actions { display: flex; align-items: center; gap: 6px; }
+.top-actions { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .badge { background: transparent; color: var(--muted); border: 1px solid var(--line-soft); border-radius: 20px; padding: 3px 10px; font-size: 10px; font-weight: 600; white-space: nowrap; }
 .badge.ok { color: var(--text); border-color: var(--text); }
 .badge.err { color: var(--text); border-color: var(--text); border-style: dashed; }
 
 /* ── wizard step navigation ─────────────────────────────────────────────── */
-.wizard-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.wizard-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
 .nav-btn { font-weight: 600; }
 .wizard-dots { display: flex; gap: 7px; }
 .wdot {
@@ -52,12 +53,12 @@ body {
 
 /* ── step sections ───────────────────────────────────────────────────────── */
 .step {
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px;
+  min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: clamp(12px, 4vw, 16px);
   display: flex; flex-direction: column; gap: 12px;
 }
 .step-title { font-weight: 700; font-size: 14px; color: var(--text); }
 .step-title .sub { font-weight: 500; color: var(--muted); font-size: 11px; margin-left: 6px; }
-.source-line { font-size: 12px; line-height: 1.6; padding: 10px 11px; border-radius: var(--radius-sm); border: 1px solid var(--line-soft); background: var(--panel-2); }
+.source-line { min-width: 0; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; padding: 10px 11px; border-radius: var(--radius-sm); border: 1px solid var(--line-soft); background: var(--panel-2); }
 .row-between { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .hstack { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .step1-extra { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
@@ -92,7 +93,7 @@ select { cursor: pointer; }
   border: 1px solid var(--line-soft); background: var(--panel-2); color: var(--text);
   border-radius: var(--radius-sm); padding: 9px 13px; font-size: 12.5px; font-weight: 600;
   cursor: pointer; transition: background .12s, border-color .12s;
-  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap;
 }
 .btn:hover:not(:disabled) { background: var(--panel-3); border-color: var(--muted-2); }
 .btn:active:not(:disabled) { background: var(--line); }
@@ -127,7 +128,7 @@ select { cursor: pointer; }
 .steps li .pct { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 10.5px; }
 
 /* ── reels ───────────────────────────────────────────────────────────────── */
-.reels { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; align-items: start; margin-top: 10px; }
+.reels { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 10px; align-items: start; margin-top: 10px; }
 .reel { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 11px; display: flex; flex-direction: column; gap: 7px; transition: border-color .15s; }
 .reel.built { border-color: var(--white); }
 .reel .head { display: flex; align-items: baseline; gap: 8px; }
@@ -152,9 +153,9 @@ select { cursor: pointer; }
 .toast.err { border-color: var(--white); color: var(--text); font-weight: 700; }
 
 /* ── transcript / subtitles modal ───────────────────────────────────────── */
-.modal { position: fixed; inset: 0; background: rgba(0, 0, 0, .78); display: flex; align-items: stretch; justify-content: center; padding: 12px; z-index: 50; }
-.modal-box { background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius); display: flex; flex-direction: column; width: 100%; max-width: 1000px; max-height: 100%; }
-.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid var(--line); flex: none; }
+.modal { position: fixed; inset: 0; background: rgba(0, 0, 0, .78); display: flex; align-items: stretch; justify-content: center; padding: clamp(6px, 3vw, 12px); z-index: 50; }
+.modal-box { min-width: 0; background: var(--panel); border: 1px solid var(--line-soft); border-radius: var(--radius); display: flex; flex-direction: column; width: 100%; max-width: 1000px; max-height: 100%; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding: 12px; border-bottom: 1px solid var(--line); flex: none; }
 .modal-title { font-weight: 700; font-size: 13.5px; }
 .modal-body { padding: 12px; overflow-y: auto; }
 .tsec { margin-bottom: 16px; }
@@ -173,7 +174,7 @@ select { cursor: pointer; }
 .cap-val-head { font-weight: 700; margin-bottom: 4px; }
 .cap-val-row { line-height: 1.5; }
 
-.cap-body { display: flex; gap: 12px; padding: 12px; overflow-y: auto; align-items: flex-start; }
+.cap-body { display: flex; gap: 12px; min-width: 0; padding: 12px; overflow-y: auto; align-items: flex-start; }
 .cap-cues { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .cap-side { flex: none; width: 260px; display: flex; flex-direction: column; gap: 10px; position: sticky; top: 0; }
 
@@ -201,3 +202,46 @@ select { cursor: pointer; }
 .cap-preview-word { display: inline-block; color: var(--cap-inactive, #999); transition: color .08s; }
 .cap-preview-word.active { color: var(--cap-active, #fff); font-weight: 800; }
 .cap-preview-note { color: var(--muted-2); font-size: 10px; line-height: 1.5; }
+
+/* Premiere panels are frequently resized narrower than their default geometry.
+   Keep every interaction reachable at the manifest minimum width (380px). */
+@media (max-width: 460px) {
+  .topbar { align-items: flex-start; }
+  .brand { padding-top: 4px; font-size: 13px; }
+  .top-actions { align-items: flex-end; flex-direction: column-reverse; }
+  .top-actions .badge { max-width: 154px; overflow: hidden; text-overflow: ellipsis; }
+
+  .wizard-nav { gap: 6px; }
+  .wizard-nav .nav-btn { padding: 7px 8px; font-size: 11px; }
+  .wizard-dots { gap: 4px; }
+  .wdot { width: 22px; height: 22px; }
+
+  .hstack { gap: 6px; }
+  .step1-extra .hstack > .btn { flex: 1 1 130px; justify-content: center; }
+  .row-between > * { flex: 1 1 100%; }
+  .row-between #srtAllBtn { justify-content: center; }
+
+  .reel { padding: 10px; }
+  .reel .actions > .btn { flex: 1 1 auto; justify-content: center; }
+
+  .modal-head { align-items: flex-start; flex-direction: column; }
+  .modal-head > .hstack { width: 100%; }
+  .modal-head > .hstack > .btn { flex: 1 1 auto; justify-content: center; }
+  .modal-title { overflow-wrap: anywhere; }
+  .field.inline { width: 100%; }
+  .field.inline select { flex: 1; min-width: 0; }
+
+  .cap-body { flex-direction: column; padding: 10px; }
+  .cap-cues, .cap-side { width: 100%; }
+  .cap-side { position: static; }
+  .cap-word-row { grid-template-columns: minmax(0, 1fr) 58px 58px; gap: 4px; }
+  .cap-word-start, .cap-word-end { padding: 4px; }
+}
+
+@media (max-height: 520px) {
+  #app { gap: 8px; padding-bottom: 12px; }
+  .step { gap: 9px; }
+  .btn.big { padding: 11px; }
+  .modal { align-items: stretch; }
+  .modal-body, .cap-body { padding: 9px; }
+}
