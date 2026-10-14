@@ -37,9 +37,14 @@ jobs:
           BUILD_NUMBER: ${{ github.run_number }}
         run: |
           BASE_VERSION=$(node -p "require('./package.json').version")
-          echo "ISTV_RELEASE_VERSION=${BASE_VERSION}-build.${BUILD_NUMBER}" >> "$GITHUB_ENV"
+          export ISTV_RELEASE_VERSION="${BASE_VERSION}-build.${BUILD_NUMBER}"
+          echo "ISTV_RELEASE_VERSION=${ISTV_RELEASE_VERSION}" >> "$GITHUB_ENV"
           npm run vendor
           npm run build -- --backend-url https://istv-reels-tool-plugin.onrender.com
+          for label in win-x64 mac-arm64 mac-x64; do
+            packaged_version=$(unzip -p "dist/ISTV-Reel-Tool-${label}.zip" "ISTV-Reel-Tool-${label}/com.istv.reeltool/package.json" | node -e 'let s=""; process.stdin.on("data", c => s += c).on("end", () => process.stdout.write(JSON.parse(s).version))')
+            test "$packaged_version" = "$ISTV_RELEASE_VERSION"
+          done
       - name: Publish latest release for the editor-tools site and panel updater
         env:
           GH_TOKEN: ${{ github.token }}

@@ -597,7 +597,7 @@ async function checkOrInstallUpdate() {
       toast("Checking for updates…", "");
       const info = await updater.checkForUpdate();
       if (!info.available) {
-        toast(`ISTV Reel Tool ${info.installed} is up to date.`, "ok");
+        toast(`ISTV Reel Tool ${info.installed} is up to date. Click Generate the reels to continue.`, "ok");
         return;
       }
       availableUpdate = info;
@@ -613,7 +613,7 @@ async function checkOrInstallUpdate() {
     els.updateBtn.textContent = "Update queued";
     toast(`${queued.version} is ready. Save your project and close Premiere. The update installs after it closes; then reopen Premiere.`, "ok");
   } catch (e) {
-    toast("Update failed: " + e.message, "err");
+    toast("Update failed: " + e.message + " You can still click Generate the reels.", "err");
   } finally {
     if (els.updateBtn.textContent !== "Update queued") els.updateBtn.disabled = false;
   }
