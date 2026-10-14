@@ -991,8 +991,10 @@ function renderReels() {
 // ── build reels inside Premiere ─────────────────────────────────────────────────
 async function buildReels(reels) {
   if (!reels.length || !state.source) return;
+  if (els.buildAllBtn.disabled) return;
   els.buildAllBtn.disabled = true;
   reels.forEach((r) => setReelStatus(r, "Building…", ""));
+  toast(`Preparing ${reels.length} reel${reels.length === 1 ? "" : "s"} for Premiere…`, "");
   try {
     // Resolve BEFORE building any caption XML — host.jsx sets the reel
     // sequence to this exact rate too (see getSourceFrameRate/sourceFrameRate),
@@ -1037,37 +1039,49 @@ async function buildReels(reels) {
       })),
     };
 
-    const res = await hostCall("buildReels", payload);
-
-    // Write the full build result (incl. per-reel caption diagnostics) to a temp
-    // file for troubleshooting — safe to remove later.
-    try {
-      fs.writeFileSync(path.join(os.tmpdir(), "istv-reel-tool-lastbuild.json"), JSON.stringify(res, null, 2), "utf8");
-    } catch (e) {
-      /* non-fatal */
-    }
-
-    if (!res.ok) {
-      reels.forEach((r) => setReelStatus(r, "Failed", "err"));
-      toast("Build failed: " + res.error + (res.detail ? " — " + res.detail : ""), "err");
-      return;
-    }
-    (res.data.built || []).forEach((b, i) => {
+    // One host call per reel keeps the CEP expression small and lets the panel
+    // show which reel Premiere is working on. A large batch of caption XML can
+    // otherwise leave evalScript busy with no visible progress for minutes.
+    const results = [];
+    const warns = [];
+    for (let i = 0; i < reels.length; i++) {
       const reel = reels[i];
-      if (!reel) return;
+      toast(`Building reel ${i + 1} of ${reels.length}: ${reel.title}…`, "");
+      let waiting = true;
+      const slowNotice = setTimeout(() => {
+        if (waiting) toast(`Premiere is still building reel ${i + 1} of ${reels.length}. Check for a Premiere dialog if it stays here.`, "warn");
+      }, 90000);
+      let res;
+      const payloadPath = path.join(os.tmpdir(), `istv-build-${process.pid}-${Date.now()}-${i}.json`);
+      try {
+        fs.writeFileSync(payloadPath, JSON.stringify({ ...payload, reels: [payload.reels[i]] }), "utf8");
+        res = await hostCall("buildReelsFromFile", { path: payloadPath });
+      } finally {
+        waiting = false;
+        clearTimeout(slowNotice);
+        try { fs.unlinkSync(payloadPath); } catch (e) { /* clean up when possible */ }
+      }
+      const b = res.ok && res.data && res.data.built && res.data.built[0] ||
+        { ok: false, error: (res.error || "Premiere returned no build result") + (res.detail ? " — " + res.detail : "") };
+      results.push(b);
+      if (res.data && Array.isArray(res.data.warnings)) warns.push(...res.data.warnings);
       reel.built = !!b.ok;
       if (b.sequenceName) reel.sequenceName = b.sequenceName;
       const status = b.ok ? `✓ Built ${b.sequenceName}` : "Failed: " + (b.error || "unknown");
       setReelStatus(reel, status, b.ok ? "ok" : "err");
       const card = document.getElementById("reel-" + state.reels.indexOf(reel));
       if (card && b.ok) card.classList.add("built");
-    });
-    const okReels = (res.data.built || []).filter((b) => b && b.ok).length;
-    const warns = res.data.warnings || [];
+    }
+    try {
+      fs.writeFileSync(path.join(os.tmpdir(), "istv-reel-tool-lastbuild.json"), JSON.stringify({ built: results, warnings: warns }, null, 2), "utf8");
+    } catch (e) { /* non-fatal */ }
+    saveCache();
+    const okReels = results.filter((b) => b && b.ok).length;
     const captionNote = "Karaoke captions are placed as editable Premiere text graphics.";
-    toast(`Built ${okReels} reel sequence(s). ${captionNote}` + (warns[0] ? " " + warns[0] : ""), "ok");
+    const failed = results.length - okReels;
+    toast(`Built ${okReels} of ${results.length} reel sequence(s). ${failed ? `${failed} failed — open Show reel details for the error.` : captionNote}` + (warns[0] ? " " + warns[0] : ""), failed ? "err" : "ok");
   } catch (e) {
-    reels.forEach((r) => setReelStatus(r, "Failed", "err"));
+    reels.filter((r) => !r.built).forEach((r) => setReelStatus(r, "Failed", "err"));
     toast("Build failed: " + e.message, "err");
   } finally {
     els.buildAllBtn.disabled = false;
