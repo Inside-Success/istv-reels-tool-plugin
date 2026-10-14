@@ -111,6 +111,16 @@ Bump the extension version only when you intentionally want a new compatibility
 or support milestone; otherwise rebuild and send the updated zip for the
 editor's machine.
 
+**In-panel updates (v1.2.4 onward):** Publish the three platform ZIPs as assets
+of a stable GitHub release in `Inside-Success/istv-reels-tool-plugin`, tagged
+with the same version as `package.json` (for example `v1.2.4`). GitHub must
+provide a SHA-256 `digest` for each asset. Editors click **Check updates** in
+the panel, then **Install v…**. The panel downloads and verifies the matching
+ZIP, and the replacement runs after they close Premiere. They reopen Premiere
+to use it. Each future release needs a higher `package.json` version and a
+matching tag; the build stamp alone is not used to decide whether to update.
+Editors on v1.2.3 or earlier need one ZIP update first to receive this button.
+
 **Each editor:**
 1. Unzip the bundle for their machine.
 2. Close Premiere, then double-click **`install.bat`** (Windows) or

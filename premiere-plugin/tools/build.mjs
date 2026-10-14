@@ -52,6 +52,7 @@ const INCLUDE = [
   "CSXS",
   "index.html", // the panel's MainPath (see CSXS/manifest.xml)
   "js",
+  "updater",
   "jsx",
   "css",
   "presets",

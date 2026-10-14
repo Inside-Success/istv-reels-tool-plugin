@@ -38,6 +38,18 @@ UPDATE - WINDOWS (64-bit)
 
   Your saved access token stays on this machine.
 
+FUTURE UPDATES (v1.2.4 AND NEWER)
+---------------------------------
+
+  In the Premiere panel, click "Check updates". If a newer release is shown,
+  click "Install v..." and wait for the download to finish. Save your Premiere
+  project and close Premiere. The update replaces the plugin after Premiere
+  exits. Reopen Premiere to use the new version. No new installer download is
+  needed for these future releases.
+
+  Editors on v1.2.3 or older must use the UPDATE steps above once to receive
+  the in-panel update button.
+
 
 INSTALL - MAC, APPLE SILICON (M1/M2/M3/M4)
 ------------------------------------------
@@ -93,6 +105,10 @@ USING IT
      a time). Each becomes a ready-to-edit 9:16 sequence in an
      "ISTV Reels" bin, with the cuts, vertical reframe and captions
      already in place.
+     If reels from a previous run appear, you can build them again or click
+     "Generate again" to choose a fresh set. A fresh set reuses the saved
+     transcript for the same source clip; tick "Re-transcribe" on the source
+     screen when you need to transcribe the audio again.
   4. Optional: open a reel's caption editor to fix wording or timing, or
      switch caption style, then rebuild that reel.
   5. Tweak on the timeline and export as usual

@@ -31,6 +31,7 @@ const EXT_ROOT = cs.getSystemPath(SystemPath.EXTENSION);
 // only applies the first time this extension is ever opened on a machine —
 // after that, drag-resize once and Premiere remembers it from then on.
 const backend = require(path.join(EXT_ROOT, "js", "backend.js"));
+const updater = require(path.join(EXT_ROOT, "js", "updater.js"));
 const ffmpeg = require(path.join(EXT_ROOT, "js", "ffmpeg.js"));
 const captionDoc = require(path.join(EXT_ROOT, "js", "captionDoc.js"));
 const captionTemplates = require(path.join(EXT_ROOT, "js", "captionTemplates.js"));
@@ -269,7 +270,11 @@ const crypto = require("crypto");
 const CACHE_FILE = path.join(os.tmpdir(), "istv-reel-tool-last.json");
 function saveCache() {
   try {
-    fs.writeFileSync(CACHE_FILE, JSON.stringify({ source: state.source, reels: state.reels }), "utf8");
+    fs.writeFileSync(CACHE_FILE, JSON.stringify({
+      source: state.source,
+      sourceFingerprint: state.source && sourceFingerprint(state.source.path),
+      reels: state.reels,
+    }), "utf8");
   } catch (e) {
     /* non-fatal */
   }
@@ -344,6 +349,7 @@ const state = {
 const $ = (id) => document.getElementById(id);
 const els = {
   hostBadge: $("hostBadge"),
+  updateBtn: $("updateBtn"),
   sourceLine: $("sourceLine"),
   detectBtn: $("detectBtn"),
   viewTranscriptBtn: $("viewTranscriptBtn"),
@@ -361,6 +367,7 @@ const els = {
   reelCount: $("reelCount"),
   reels: $("reels"),
   buildAllBtn: $("buildAllBtn"),
+  regenerateBtn: $("regenerateBtn"),
   reelsDetailToggle: $("reelsDetailToggle"),
   reelsDetail: $("reelsDetail"),
   sourceDetailToggle: $("sourceDetailToggle"),
@@ -580,12 +587,46 @@ async function saveAndVerifyToken() {
   }
 }
 
+// ── in-panel updates ─────────────────────────────────────────────────────────
+let availableUpdate = null;
+
+async function checkOrInstallUpdate() {
+  els.updateBtn.disabled = true;
+  try {
+    if (!availableUpdate) {
+      toast("Checking for updates…", "");
+      const info = await updater.checkForUpdate();
+      if (!info.available) {
+        toast(`ISTV Reel Tool ${info.installed} is up to date.`, "ok");
+        return;
+      }
+      availableUpdate = info;
+      els.updateBtn.textContent = `Install ${info.latest}`;
+      els.updateBtn.title = `Download and install ISTV Reel Tool ${info.latest} after Premiere closes`;
+      toast(`${info.latest} is available. Click Install, then close Premiere to finish the update.`, "ok");
+      return;
+    }
+    toast(`Downloading ${availableUpdate.latest}…`, "");
+    const queued = await updater.scheduleUpdate(availableUpdate, (progress) => {
+      toast(`Downloading ${availableUpdate.latest}… ${Math.round(progress * 100)}%`, "");
+    });
+    els.updateBtn.textContent = "Update queued";
+    toast(`${queued.version} is ready. Save your project and close Premiere. The update installs after it closes; then reopen Premiere.`, "ok");
+  } catch (e) {
+    toast("Update failed: " + e.message, "err");
+  } finally {
+    if (els.updateBtn.textContent !== "Update queued") els.updateBtn.disabled = false;
+  }
+}
+
 // ── init ─────────────────────────────────────────────────────────────────────
 async function init() {
   renderSteps();
+  els.updateBtn.addEventListener("click", checkOrInstallUpdate);
   els.detectBtn.addEventListener("click", detectSource);
   els.generateBtn.addEventListener("click", generate);
   els.buildAllBtn.addEventListener("click", () => buildReels(state.reels));
+  els.regenerateBtn.addEventListener("click", () => goToStep(1));
   if (els.sourceDetailToggle) {
     els.sourceDetailToggle.addEventListener("click", () => {
       const showing = els.sourceDetail.classList.toggle("hidden") === false;
@@ -658,16 +699,20 @@ async function init() {
 
   // Restore last run's reels so the editor can rebuild without re-transcribing.
   const cached = loadCache();
-  if (cached && Array.isArray(cached.reels) && cached.reels.length) {
+  if (cached && cached.source && Array.isArray(cached.reels) && cached.reels.length &&
+      (!state.source || state.source.path === cached.source.path) &&
+      (!cached.sourceFingerprint || cached.sourceFingerprint === sourceFingerprint(cached.source.path))) {
     // A fresh Premiere session has none of last run's sequences, so clear the
     // built flags — Build will recreate them on demand.
     state.reels = cached.reels.map((r) => ({ ...r, built: false, sequenceName: "" }));
-    if (!state.source && cached.source) state.source = cached.source;
+    if (!state.source) state.source = cached.source;
     renderReels();
     maxUnlockedStep = 3;
     goToStep(3);
-    toast(`Restored ${state.reels.length} reels from your last run. Click Build reels, or Generate to refresh.`, "ok");
+    toast(`Restored ${state.reels.length} reels from your last run. Click Build the reels, or Generate again to refresh.`, "ok");
   }
+  const updateStatus = updater.consumeUpdateStatus();
+  if (updateStatus) toast(updateStatus, updateStatus.startsWith("Update failed") ? "err" : "ok");
 }
 
 async function detectSource() {
@@ -914,6 +959,7 @@ async function pullCaptionsFromPremiere() {
 
 function renderReels() {
   els.reelsCard.classList.remove("hidden");
+  els.buildAllBtn.disabled = state.reels.length === 0;
   els.reelCount.textContent = state.reels.length;
   els.reels.innerHTML = "";
   state.reels.forEach((reel, i) => {
@@ -947,80 +993,85 @@ async function buildReels(reels) {
   if (!reels.length || !state.source) return;
   els.buildAllBtn.disabled = true;
   reels.forEach((r) => setReelStatus(r, "Building…", ""));
-
-  // Resolve BEFORE building any caption XML — host.jsx sets the reel
-  // sequence to this exact rate too (see getSourceFrameRate/sourceFrameRate),
-  // so the caption sequence's baked-in frame numbers and the reel's actual
-  // playback rate can never mismatch and drift apart over the reel's length.
-  const trueFps = await resolveTrueFps();
-
-  const meta = state.source.meta || {};
-  const payload = {
-    sourcePath: state.source.path,
-    canvas: DEFAULT_CANVAS,
-    fps: trueFps || (meta.fps && meta.fps > 0 ? meta.fps : 0), // match the reel sequence to the source fps
-    presetPath: VERTICAL_PRESET,
-    mogrtPath: CAPTION_MOGRT || "", // legacy fallback only — see findCaptionMogrt
-    // Captions are placed directly on the sequence as part of the build — no
-    // separate "Apply subtitles" step. Karaoke-style pop captions (phrase-by-
-    // phrase text — not an in-line word-highlight sweep, which Premiere's
-    // scripting API can't do, see jsx/captions.jsx) via FCP XML import
-    // (js/premiereXml.js) — no MOGRT file needed, works out of the box.
-    captionMode: "karaoke",
-    binName: "ISTV Reels",
-    reels: reels.map((r) => ({
-      id: r.id,
-      index: r.index,
-      title: r.title,
-      segments: r.segments,
-      reframe: { cropX: 0.5, cropY: 0.5, zoom: 1, srcW: meta.width || 1920, srcH: meta.height || 1080 },
-      captionBlocks: r.captionBlocks,
-      // Both pre-rendered from the JSON caption master (§2/§6) so Premiere
-      // gets exactly what the editor reviewed/edited in the Captions panel,
-      // not a re-derivation in ExtendScript. xmlText is the primary path
-      // (applyGraphicsXml); srtText is the legacy native-caption-bin fallback.
-      srtText: reelToSrt(r),
-      xmlText: buildXmlForReel(r, trueFps),
-      metadata: {
-        title: r.title,
-        caption: r.caption,
-        hashtags: r.hashtags,
-        whyItWorks: r.whyItWorks,
-        spokenHook: r.spokenHook,
-      },
-    })),
-  };
-
-  const res = await hostCall("buildReels", payload);
-  els.buildAllBtn.disabled = false;
-
-  // Write the full build result (incl. per-reel caption diagnostics) to a temp
-  // file for troubleshooting — safe to remove later.
   try {
-    fs.writeFileSync(path.join(os.tmpdir(), "istv-reel-tool-lastbuild.json"), JSON.stringify(res, null, 2), "utf8");
-  } catch (e) {
-    /* non-fatal */
-  }
+    // Resolve BEFORE building any caption XML — host.jsx sets the reel
+    // sequence to this exact rate too (see getSourceFrameRate/sourceFrameRate),
+    // so the caption sequence's baked-in frame numbers and the reel's actual
+    // playback rate can never mismatch and drift apart over the reel's length.
+    const trueFps = await resolveTrueFps();
 
-  if (!res.ok) {
+    const meta = state.source.meta || {};
+    const payload = {
+      sourcePath: state.source.path,
+      canvas: DEFAULT_CANVAS,
+      fps: trueFps || (meta.fps && meta.fps > 0 ? meta.fps : 0), // match the reel sequence to the source fps
+      presetPath: VERTICAL_PRESET,
+      mogrtPath: CAPTION_MOGRT || "", // legacy fallback only — see findCaptionMogrt
+      // Captions are placed directly on the sequence as part of the build — no
+      // separate "Apply subtitles" step. Karaoke-style pop captions (phrase-by-
+      // phrase text — not an in-line word-highlight sweep, which Premiere's
+      // scripting API can't do, see jsx/captions.jsx) via FCP XML import
+      // (js/premiereXml.js) — no MOGRT file needed, works out of the box.
+      captionMode: "karaoke",
+      binName: "ISTV Reels",
+      reels: reels.map((r) => ({
+        id: r.id,
+        index: r.index,
+        title: r.title,
+        segments: r.segments,
+        reframe: { cropX: 0.5, cropY: 0.5, zoom: 1, srcW: meta.width || 1920, srcH: meta.height || 1080 },
+        captionBlocks: r.captionBlocks,
+        // Both pre-rendered from the JSON caption master (§2/§6) so Premiere
+        // gets exactly what the editor reviewed/edited in the Captions panel,
+        // not a re-derivation in ExtendScript. xmlText is the primary path
+        // (applyGraphicsXml); srtText is the legacy native-caption-bin fallback.
+        srtText: reelToSrt(r),
+        xmlText: buildXmlForReel(r, trueFps),
+        metadata: {
+          title: r.title,
+          caption: r.caption,
+          hashtags: r.hashtags,
+          whyItWorks: r.whyItWorks,
+          spokenHook: r.spokenHook,
+        },
+      })),
+    };
+
+    const res = await hostCall("buildReels", payload);
+
+    // Write the full build result (incl. per-reel caption diagnostics) to a temp
+    // file for troubleshooting — safe to remove later.
+    try {
+      fs.writeFileSync(path.join(os.tmpdir(), "istv-reel-tool-lastbuild.json"), JSON.stringify(res, null, 2), "utf8");
+    } catch (e) {
+      /* non-fatal */
+    }
+
+    if (!res.ok) {
+      reels.forEach((r) => setReelStatus(r, "Failed", "err"));
+      toast("Build failed: " + res.error + (res.detail ? " — " + res.detail : ""), "err");
+      return;
+    }
+    (res.data.built || []).forEach((b, i) => {
+      const reel = reels[i];
+      if (!reel) return;
+      reel.built = !!b.ok;
+      if (b.sequenceName) reel.sequenceName = b.sequenceName;
+      const status = b.ok ? `✓ Built ${b.sequenceName}` : "Failed: " + (b.error || "unknown");
+      setReelStatus(reel, status, b.ok ? "ok" : "err");
+      const card = document.getElementById("reel-" + state.reels.indexOf(reel));
+      if (card && b.ok) card.classList.add("built");
+    });
+    const okReels = (res.data.built || []).filter((b) => b && b.ok).length;
+    const warns = res.data.warnings || [];
+    const captionNote = "Karaoke captions are placed as editable Premiere text graphics.";
+    toast(`Built ${okReels} reel sequence(s). ${captionNote}` + (warns[0] ? " " + warns[0] : ""), "ok");
+  } catch (e) {
     reels.forEach((r) => setReelStatus(r, "Failed", "err"));
-    toast("Build failed: " + res.error + (res.detail ? " — " + res.detail : ""), "err");
-    return;
+    toast("Build failed: " + e.message, "err");
+  } finally {
+    els.buildAllBtn.disabled = false;
   }
-  (res.data.built || []).forEach((b, i) => {
-    const reel = reels[i];
-    if (!reel) return;
-    reel.built = !!b.ok;
-    if (b.sequenceName) reel.sequenceName = b.sequenceName;
-    const status = b.ok ? `✓ Built ${b.sequenceName}` : "Failed: " + (b.error || "unknown");
-    setReelStatus(reel, status, b.ok ? "ok" : "err");
-    const card = document.getElementById("reel-" + state.reels.indexOf(reel));
-    if (card && b.ok) card.classList.add("built");
-  });
-  const okReels = (res.data.built || []).filter((b) => b && b.ok).length;
-  const warns = res.data.warnings || [];
-  const captionNote = "Karaoke captions are placed as editable Premiere text graphics.";
-  toast(`Built ${okReels} reel sequence(s). ${captionNote}` + (warns[0] ? " " + warns[0] : ""), "ok");
 }
 
 function setReelStatus(reel, text, cls) {

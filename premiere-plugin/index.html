@@ -10,7 +10,10 @@
     <div id="app">
       <header class="topbar">
         <div class="brand"><span class="logo"></span>ISTV Reel Tool</div>
-        <span id="hostBadge" class="badge">Premiere</span>
+        <div class="top-actions">
+          <button id="updateBtn" class="btn ghost tiny" title="Check GitHub for a new ISTV Reel Tool release">Check updates</button>
+          <span id="hostBadge" class="badge">Premiere</span>
+        </div>
       </header>
 
       <nav class="wizard-nav">
@@ -85,6 +88,7 @@
       <section id="reelsCard" class="step hidden" data-step="3">
         <h2 class="step-title">Reels <span class="sub">(<span id="reelCount">0</span>)</span></h2>
         <button id="buildAllBtn" class="btn primary block big" title="Create a 9:16 sequence for every reel with captions already placed on it">Build the reels</button>
+        <button id="regenerateBtn" class="btn ghost tiny block" title="Return to the source step to generate a fresh set of reels">Generate again</button>
         <button id="reelsDetailToggle" class="btn ghost tiny block" title="Show each reel's title, caption, and per-reel Build/Captions/SRT controls">Show reel details</button>
         <div id="reelsDetail" class="hidden">
           <div class="row-between">
