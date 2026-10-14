@@ -1,0 +1,52 @@
+name: Publish Premiere plugin
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: premiere-plugin-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: premiere-plugin/package-lock.json
+      - name: Install and test
+        working-directory: premiere-plugin
+        run: |
+          npm ci
+          npm test
+      - uses: actions/cache@v4
+        with:
+          path: premiere-plugin/vendor/ffmpeg
+          key: ffmpeg-static-v1-${{ runner.os }}-${{ hashFiles('premiere-plugin/tools/vendor-ffmpeg.mjs') }}
+      - name: Vendor and build all platforms
+        working-directory: premiere-plugin
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          BASE_VERSION=$(node -p "require('./package.json').version")
+          echo "ISTV_RELEASE_VERSION=${BASE_VERSION}-build.${BUILD_NUMBER}" >> "$GITHUB_ENV"
+          npm run vendor
+          npm run build -- --backend-url https://istv-reels-tool-plugin.onrender.com
+      - name: Publish latest release for the editor-tools site and panel updater
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          gh release create "v${ISTV_RELEASE_VERSION}" premiere-plugin/dist/ISTV-Reel-Tool-{win-x64,mac-arm64,mac-x64}.zip \
+            --target "$COMMIT_SHA" \
+            --title "ISTV Reel Tool ${ISTV_RELEASE_VERSION}" \
+            --notes "Automated build of ${COMMIT_SHA}. Download the ZIP for your platform, then use its installer or updater." \
+            --latest

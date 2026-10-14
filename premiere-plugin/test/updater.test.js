@@ -17,6 +17,9 @@ test("updates require a higher stable version", () => {
   assert.equal(updater.isNewer("v1.2.2", "1.2.3"), false);
   assert.equal(updater.isNewer("v1.3.0", "1.2.9"), true);
   assert.equal(updater.isNewer("v1.2.4-beta", "1.2.3"), false);
+  assert.equal(updater.isNewer("v1.2.5-build.2", "1.2.5-build.1"), true);
+  assert.equal(updater.isNewer("v1.2.5-build.1", "1.2.5"), true);
+  assert.equal(updater.isNewer("v1.2.6", "1.2.5-build.99"), true);
 });
 
 test("accepts only the exact release asset with a SHA-256 digest", () => {

@@ -22,15 +22,15 @@ function platformLabel(platform = process.platform, arch = process.arch) {
 }
 
 function versionParts(v) {
-  const m = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(String(v || ""));
-  return m ? m.slice(1).map(Number) : null;
+  const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-build\.(\d+))?$/.exec(String(v || ""));
+  return m ? [...m.slice(1, 4).map(Number), Number(m[4] || 0)] : null;
 }
 
 function isNewer(candidate, installed) {
   const a = versionParts(candidate);
   const b = versionParts(installed);
   if (!a || !b) return false;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     if (a[i] !== b[i]) return a[i] > b[i];
   }
   return false;

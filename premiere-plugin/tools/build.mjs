@@ -191,6 +191,15 @@ function stageBundle({ label, targets, backendUrl, currentConfig, version, build
     else cpSync(src, dest);
   }
 
+  // CI gives each published build a distinct update version while the source
+  // package version remains the CEP compatibility milestone.
+  if (process.env.ISTV_RELEASE_VERSION) {
+    const packagePath = join(extDir, "package.json");
+    const pkg = JSON.parse(readFileSync(packagePath, "utf8"));
+    pkg.version = process.env.ISTV_RELEASE_VERSION;
+    writeFileSync(packagePath, JSON.stringify(pkg, null, 2) + "\n", "utf8");
+  }
+
   // 2) config.json with the release backend baked in.
   // Never a token here - see parseArgs. Strip one if config.json happens to carry
   // a local testing token, so it cannot ride along into a distributed bundle.
@@ -272,7 +281,8 @@ async function main() {
   const configPath = join(EXT_ROOT, "config.json");
   const currentConfig = existsSync(configPath) ? JSON.parse(readFileSync(configPath, "utf8")) : {};
   const backendUrl = resolveBackendUrl(args, currentConfig);
-  const version = JSON.parse(readFileSync(join(EXT_ROOT, "package.json"), "utf8")).version || "0.0.0";
+  const version = process.env.ISTV_RELEASE_VERSION || JSON.parse(readFileSync(join(EXT_ROOT, "package.json"), "utf8")).version || "0.0.0";
+  if (!/^\d+\.\d+\.\d+(?:-build\.\d+)?$/.test(version)) throw new Error("Invalid release version.");
   const buildInfo = currentBuildInfo();
 
   // Vendored binaries must exist for every requested target before we stage.

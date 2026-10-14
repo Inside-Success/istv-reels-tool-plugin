@@ -79,6 +79,15 @@ Get the token from the Render dashboard: **istv-reels-backend → Environment �
 
 ## Sharing plugin updates with editors (simple, no dev tools)
 
+Every push to `main` now runs `.github/workflows/publish-plugin.yml`: it tests,
+vendors FFmpeg, builds the three platform ZIPs, and publishes a new GitHub
+release marked latest. `editor-tools.insidesuccess.ai` already links to those
+latest release assets, so its download buttons pick up the new build without
+a separate Vercel deployment. The release uses a `v<version>-build.<run>` tag;
+the panel updater compares that build number as well as the compatibility
+version. Check the workflow run and release if a push does not appear on the
+site. A failed build does not replace the current latest release.
+
 **You (after any plugin change you want editors to get):**
 ```bash
 npm install                    # dev only — fetches the vendoring helper's deps
